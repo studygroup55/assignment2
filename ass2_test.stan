@@ -18,11 +18,6 @@ parameters{
 // The model to be estimated
 model{
   target += normal(bias | 0, 1); // The prior for our bias is a uniform distribution between 0 and 1
-  target += bernoulli_logit_lpmf(player | bias);
+  target += bernoulli_logit_lpmf(player | noise);
 }
 "
-
-write_stan_file(
-  stan_model,
-  dir = "./ass2_test.stan",
-  basename = "W3_SimpleBernoulli.stan")
