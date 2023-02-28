@@ -1,0 +1,149 @@
+---
+title: "Assignment 2"
+author: "Lina Elkjær Pedersen"
+date: "2023-02-28"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+pacman::p_load(tidyverse,
+        here,
+        posterior,
+        cmdstanr,
+        brms, tidybayes)
+```
+
+
+#creating data
+```{r}
+#Defining agent function
+WSLSAgent_f <- function(prevChoice, Feedback, noise){
+  if (Feedback == 1) {      #If feedback = 1 (win), stay
+    choice = prevChoice}
+  else if (Feedback == 0){ #If feedback = 0 (loss), shift
+    choice = 1 - prevChoice}
+  if(rbinom(1,1,noise)==1){
+    choice <-rbinom(1,1,.5)}
+  return(choice)}
+
+WSLSAgent_f(1,0,0.8)
+
+
+#Define number of trials
+trials <- 120
+
+#Create empty vector
+WSLSChoice <- rep(NA, trials)
+
+#Simulating data for one player with no opponent - simply generating 
+x <- c(0,1)
+
+for (t in seq(trials)){
+  WSLSChoice[t] <- WSLSAgent_f(sample(x,1,replace = T), sample(x,1,replace = T),0.7)
+}
+# 
+
+```
+
+
+#Simulating data
+```{r}
+ntrials <- 120
+rate <- 0.5
+noise <- 0.8
+self <- rep(NA, ntrials)
+other <- rep(NA, ntrials)
+feedback_self <- rep(NA,ntrials)
+
+#Randomly setting the first choice on the first trial for the WSLS agent
+self[1] <- RandomAgent_f(0.5)
+
+# Simulating data for the random agent
+for (t in seq(trials)) {other[t] <- RandomAgent_f(rate)}
+
+for (i in 2:trials){
+  if (self[i-1] ==other[i-1]){
+    feedback = 1} 
+  else {feedback = 0}
+  self[i] <-WSLSAgent_f(self[i-1], feedback, noise)}
+
+
+
+# #The same simulation-only if we  also want to save the feedback for self
+# for (i in 2:trials){
+#   if (self[i-1] ==other[i-1]){
+#     feedback_self[i] = 1} 
+#   else {feedback_self[i] = 0}
+#   self[i] <-WSLSAgent_f(self[i-1], feedback_self[i], noise)}
+
+
+#Transform matrices to long (stacked) format
+self_long <- melt(self)
+
+#Adding column names
+names(self_long) <- c("self_choices")
+#Adding column with trial number
+self_long_wtrials <- self_long %>% 
+  mutate(Trial_number=row_number())
+
+#Doing the same for other
+other_long <- melt(other)
+names(other_long) <- c("other_choices")
+
+other_long_wtrials <- other_long %>% 
+  mutate(Trial_number=row_number())
+
+
+
+#Merge self's andother's choices into one data file 
+merged_simple_game <- merge(self_long_wtrials, other_long_wtrials, by = "Trial_number")
+```
+
+
+
+
+
+```{r}
+#Specifying the data
+ data <- read.csv("assignment2/data.csv")
+
+## Create the data. N.B. note the two variables have different lengths: 1 for n, n for h.
+data <- list(
+  t = length(data$self_choices),  # n of trials
+  c = data$self_choices # sequence of choices (h stands for hand)
+)
+
+
+## Specify where the model is
+file <- file.path("assignment2 wsls.stan")
+
+mod <- cmdstan_model(file, 
+                     # this specifies we can parallelize the gradient estimations on multiple cores
+                     cpp_options = list(stan_threads = TRUE), 
+                     # this is a trick to make it faster
+                     stanc_options = list("O1")) 
+
+
+# The following command calls Stan with specific options.
+samples <- mod$sample(
+  data = data, # the data :-)
+  seed = 123,  # a seed, so I always get the same results
+  chains = 2,  # how many chains should I fit (to check whether they give the same results)
+  parallel_chains = 2, # how many of the chains can be run in parallel?
+  threads_per_chain = 2, # distribute gradient estimations within chain across multiple cores
+  iter_warmup = 1000,  # warmup iterations through which hyperparameters (steps and step length) are adjusted
+  iter_sampling = 2000, # total number of iterations
+  refresh = 0,  # how often to show that iterations have been run
+  max_treedepth = 20, # how many steps in the future to check to avoid u-turns
+  adapt_delta = 0.99, # how high a learning rate to adjust hyperparameters during warmup
+)
+
+
+```
+
+
+
