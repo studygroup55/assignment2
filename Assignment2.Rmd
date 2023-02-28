@@ -49,6 +49,8 @@ WSLSAgent_f <- function(prevChoice, Feedback, noise){
     choice <-rbinom(1,1,.5)}
   return(choice)}
 
+rbinom(1,1,noise)
+
 WSLSAgent_f(1,0,0.8)
 
 
@@ -127,23 +129,15 @@ merged_simple_game <- merge(self_long_wtrials, other_long_wtrials, by = "Trial_n
 
 
 
-#Creating a memory agent
-```{r}
-memory_agent
-```
-
-
-
 
 ```{r}
 #specifying where the model is
 file <- file.path("./ass2_test.stan")
+data <- write.csv(self_long_wtrials, "./data.csv") # the input should be a list - not a data frame
+data <- as.list(data)
 
 mod <- cmdstan_model(stan_file = file, cpp_options = list(stan_threads=TRUE))
 
-data <- write.csv(self_long, "./data.csv") # the input should be a list - not a data frame
-
-data <- as.list(data)
 
 samples <- mod$sample(
   data = data,
