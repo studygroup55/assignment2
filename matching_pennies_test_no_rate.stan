@@ -13,6 +13,7 @@ data {
   array[n_trials] int choice; // choices, 0 (left) and 1 (right), integer
   vector<lower=-1, upper=1>[n_trials] next_choice; // based on other's actions, 1s for choosing right next time and -1 for choosing left next time
   // array[n_trials] int right_choice; // weighting of choices in the WSLS strategy, -1 being left choices and 1 being right choices, integer
+  vector [n_trials] random;
 }
   
 parameters {
@@ -24,8 +25,8 @@ parameters {
 transformed parameters {
   vector[n_trials] rate_w_noise; // the parameter of the rate and noise
   
-  //if (noise == 1) {rate_w_noise = 0.5;}
-  rate_w_noise = next_choice*(1-noise); //What was the point again with 1/noise, would this be okay in our case?
+  if (noise == 1) {rate_w_noise = random;}
+  else {rate_w_noise = next_choice*(1-noise);} //What was the point again with 1/noise, would this be okay in our case?
   
   //rate_w_noise = next_choice*(1-noise);
   //rate_w_noise = logit(rate_w_noise);

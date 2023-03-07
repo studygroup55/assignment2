@@ -24,6 +24,7 @@ library(reshape2)
 library(ggdag)
 library(ggplot2)
 library(cmdstanr)
+library(posterior)
 theme_set(theme_dag())
 ```
 
@@ -109,8 +110,8 @@ df$Feedback <- NA
 #Transform feedback
 df$Feedback[df$Other == 1 & df$Self == 1] <- 1 #self wins on right, goes right
 df$Feedback[df$Other == 1 & df$Self == 0] <- 1 #self loses on left, goes right
-df$Feedback[df$Other == 0 & df$Self == 1] <- 0 #self loses on right, goes left
-df$Feedback[df$Other == 0 & df$Self == 0] <- 0 #self wins on left, goes left
+df$Feedback[df$Other == 0 & df$Self == 1] <- -1 #self loses on right, goes left
+df$Feedback[df$Other == 0 & df$Self == 0] <- -1 #self wins on left, goes left
 
 #Transform to list
 data <- list(
@@ -129,11 +130,11 @@ data
 ```{r}
 ### DIFFERENT SYNTAX THAN RICCARDO ###
 
-model_code <- readLines("matching_pennies_test.stan")
-model <- stan_model(model_code = model_code)
+#model_code <- readLines("matching_pennies_test.stan")
+#model <- stan_model(model_code = model_code)
 
-fit <- sampling(model, data, chains = 4, iter = 2000, warmup = 1000)
-summary(fit)
+#fit <- sampling(model, data, chains = 4, iter = 2000, warmup = 1000)
+#summary(fit)
 ```
 
 
@@ -143,7 +144,7 @@ summary(fit)
 ### Riccardo's syntax ###
 
 #collect stan model
-file <- file.path("~/Desktop/MA/Semester_2/Advanced_Cognitive_Modelling/assignment_2/assignment2/matching_pennies_test.stan")
+file <- file.path("matching_pennies_test_no_rate.stan")
 mod <- cmdstan_model(file, 
                      # this specifies we can parallelize the gradient estimations on multiple cores
                      cpp_options = list(stan_threads = TRUE), 
@@ -176,9 +177,9 @@ ggplot(draws_df, aes(.iteration,  noise, group = .chain, color = .chain)) +
   theme_classic()
 
 # Checking the model's chains (theta)
-ggplot(draws_df, aes(.iteration, theta, group = .chain, color = .chain)) +
-  geom_line() +
-  theme_classic()
+#ggplot(draws_df, aes(.iteration, theta, group = .chain, color = .chain)) +
+  #geom_line() +
+  #theme_classic()
 
 
  #### EXPERIMENTAL ####
