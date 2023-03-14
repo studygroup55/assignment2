@@ -26,6 +26,7 @@ library(ggplot2)
 library(cmdstanr)
 library(posterior)
 library(brms)
+library(boot)
 theme_set(theme_dag())
 ```
 
@@ -50,21 +51,49 @@ dagify(choice ~ x) %>%
 First, simulate the data
 
 ```{r}
-#Defining agent function
+# 
+# #Defining agent function
+# WSLSAgent_f <- function(prevChoice, Feedback, ruleFollowing) {
+#   
+#   if(rbinom(1,1, 1-ruleFollowing)==1){
+#   choice <- rbinom(1,1,0.5)
+#   }
+#   
+#   else if (Feedback == 1) {      #If feedback = 1 (win), stay
+#     choice = prevChoice
+#   }
+#   else if (Feedback == 0) { #If feedback = 0 (loss), shift
+#     choice = 1 - prevChoice
+#   }
+#   return(choice)
+# }
+
+
+#Attempt at changing it 
 WSLSAgent_f <- function(prevChoice, Feedback, ruleFollowing) {
+  if (ruleFollowing != 0){
+    
+    if (prevChoice == 0) {
+      prevChoice == -1 }
   
-  if(rbinom(1,1, 1-ruleFollowing)==1){
-  choice <- rbinom(1,1,0.5)
+    if (Feedback == 1) { #If feedback = 1 (win), stay
+      rate = prevChoice*ruleFollowing
+    }
+    
+    else if (Feedback == 0) { #If feedback = 0 (loss), shift
+      rate = (-prevChoice)*ruleFollowing
+    }
+    
+    rate = (1/2)*(rate + 1) #we needed -1 to become 0 and 1 to stay 1, also -0.5 will be 0.25 and 0.5 will be 0.75. 
   }
   
-  else if (Feedback == 1) {      #If feedback = 1 (win), stay
-    choice = prevChoice
-  }
-  else if (Feedback == 0) { #If feedback = 0 (loss), shift
-    choice = 1 - prevChoice
-  }
+  else { rate = 0.5}
+  
+  choice <- rbinom(1, 1, rate)
+
   return(choice)
 }
+
 
 #Defining agent function
 RandomAgent_f <- function(rate){
@@ -73,10 +102,10 @@ RandomAgent_f <- function(rate){
 }
 
 #Define rate
-rate <- 0.5
+random_rate <- 0.5
 
 #Define ruleFollowing
-ruleFollowing <- 1
+ruleFollowing <- 0.8
 
 #Define number of trials
 trials = 120
@@ -89,7 +118,8 @@ Other <- rep(NA, trials)
 Self[1] <- RandomAgent_f(0.5) #player
 
 #Run simulation
-for (t in seq(trials)){Other[t] <- RandomAgent_f(rate)}
+for (t in seq(trials)){Other[t] <- RandomAgent_f(random_rate)}
+
 for (i in 2:trials){
   if (Self[i-1] == Other[i-1]){
     Feedback = 1
@@ -102,11 +132,226 @@ df <- tibble(Self, Other, trial = seq(trials), Feedback = as.numeric(Self == Oth
 ```
 
 ```{r}
-for (i in 1:10){
-  print(rbinom(1,1,1-ruleFollowing))
+#Simulating with different values for ruleFollowing 
+
+list_of_dfs <- list()
+temp <- list()
+recovery_df <- data.frame()
+
+for(ruleFollowing_lvl in seq(0, 1, 0.1)){
+  ruleFollowing = ruleFollowing_lvl
+  trials = 120
+  
+  #Define empty vectors
+  Self <- rep(NA, trials)
+  Other <- rep(NA, trials)
+  
+  #Define random first choice for player
+  Self[1] <- RandomAgent_f(0.5) #player
+  
+  #Run simulation
+  for (t in seq(trials)){Other[t] <- RandomAgent_f(random_rate)}
+   
+  for (i in 2:trials){
+    if (Self[i-1] == Other[i-1]){
+      Feedback = 1
+  } else {Feedback = 0}
+    Self[i] <- WSLSAgent_f(Self[i-1], Feedback, ruleFollowing)
+  }
+
+  #show
+  df <- tibble(Self, Other, trial = seq(trials), Feedback = as.numeric(Self == Other))
+  
+  list_of_dfs <- append(list_of_dfs, df)
+  
+  #empty column
+  df$strategy_choice <- NA
+  
+  #Transform
+  df$strategy_choice[df$Other == 1 & df$Self == 1] <- 1 #self wins on right, goes right
+  df$strategy_choice[df$Other == 1 & df$Self == 0] <- 1 #self loses on left, goes right
+  df$strategy_choice[df$Other == 0 & df$Self == 1] <- -1 #self loses on right, goes left
+  df$strategy_choice[df$Other == 0 & df$Self == 0] <- -1 #self wins on left, goes left
+  
+  #df$Other[df$Other == 0 ] <- -1 #self wins on right, goes right
+  #df$Self[df$Self == 0] <- -1 
+  
+  insert_value = NA
+  
+  #shift strategy choice one down
+  df = df %>%
+     mutate(strategy_choice = lag(strategy_choice, n = 1, default = insert_value))
+  
+  #exclude first trial
+  df = df[-1,]
+  
+  df
+  
+  df$Feedback <- NA
+
+  #Transform feedback
+  #df$Feedback[df$Other == 1 & df$Self == 1] <- 1 #self wins on right, goes right
+  #df$Feedback[df$Other == 1 & df$Self == 0] <- 1 #self loses on left, goes right
+  #df$Feedback[df$Other == 0 & df$Self == 1] <- -1 #self loses on right, goes left
+  #df$Feedback[df$Other == 0 & df$Self == 0] <- -1 #self wins on left, goes left
+  
+  
+  #df$Other[df$Other == 0 ] <- -1 #self wins on right, goes right
+  #df$Self[df$Self == 0] <- -1 
+  
+  
+  #Transform to list
+  data <- list(
+    n_trials = nrow(df),  # n of trials
+    choice = df$Self, # sequence of choices
+    strategy_choice = df$strategy_choice # whether or not agent is choosing right 
+    )
+  
+  file <- file.path("matching_pennies_test_no_rate.stan")
+  mod <- cmdstan_model(file, 
+                       # this specifies we can parallelize the gradient estimations on multiple cores
+                       cpp_options = list(stan_threads = TRUE), 
+                       # this is a trick to make it faster
+                       stanc_options = list("O1")) 
+  
+  #extract samples
+  samples <- mod$sample(
+    data = data, # the data :-)
+    seed = 123,  # a seed, so I always get the same results
+    chains = 2,  # how many chains should I fit (to check whether they give the same results)
+    parallel_chains = 2, # how many of the chains can be run in parallel?
+    threads_per_chain = 2, # distribute gradient estimations within chain across multiple cores
+    iter_warmup = 1000,  # warmup iterations through which hyperparameters (steps and step length) are adjusted
+    iter_sampling = 2000, # total number of iterations
+    refresh = 0,  # how often to show that iterations have been run
+    max_treedepth = 20, # how many steps in the future to check to avoid u-turns
+    adapt_delta = 0.99, # how high a learning rate to adjust hyperparameters during warmup
+  )
+  
+  #extract summary 
+  samples$summary()
+  
+  # Extract posterior samples and include sampling of the prior:
+  draws_df <- as_draws_df(samples$draws())
+
+  
+  # Checking the model's chains (noise)
+  temp = ggplot(draws_df, aes(.iteration,  ruleFollowing, group = .chain, color = .chain)) +
+      geom_line() +
+      theme_classic()
+  
+  # assign function within loop
+  assign(paste0("plot_", ruleFollowing_lvl), temp)
+
+  assign(paste0("draws_df_", ruleFollowing_lvl), draws_df)
+  
+  recovery_df <- rbind(recovery_df, samples$summary("ruleFollowing"))
+  
+  #assign(paste0("recovery_", ruleFollowing_lvl), samples$summary("ruleFollowing"))
+  
 }
 
+  
 ```
+
+```{r}
+plot_0.2
+
+# add a prior for theta (ugly, but we'll do better soon)
+draws_df_0.2<- draws_df_0.2 %>% mutate(
+  ruleFollowing_prior = rbeta(nrow(draws_df_0.2), 1, 1)
+)
+
+# Now let's plot the density for theta (prior and posterior)
+ggplot(draws_df_0.2) +
+  geom_density(aes(ruleFollowing), fill = "blue", alpha = 0.3) +
+  geom_density(aes(ruleFollowing_prior), fill = "red", alpha = 0.3) +
+  geom_vline(xintercept = 0.2, linetype = "dashed", color = "black", size = 1.5) +
+  xlab("Rate") +
+  ylab("Posterior Density") +
+  theme_classic()
+
+
+
+plot_0.4
+
+# add a prior for theta (ugly, but we'll do better soon)
+draws_df_0.4<- draws_df_0.4 %>% mutate(
+  ruleFollowing_prior = rbeta(nrow(draws_df_0.4), 1, 1)
+)
+
+# Now let's plot the density for theta (prior and posterior)
+ggplot(draws_df_0.4) +
+  geom_density(aes(ruleFollowing), fill = "blue", alpha = 0.3) +
+  geom_density(aes(ruleFollowing_prior), fill = "red", alpha = 0.3) +
+  geom_vline(xintercept = 0.4, linetype = "dashed", color = "black", size = 1.5) +
+  xlab("Rate") +
+  ylab("Posterior Density") +
+  theme_classic()
+
+
+plot_0.6
+
+# add a prior for theta (ugly, but we'll do better soon)
+draws_df_0.6<- draws_df_0.6 %>% mutate(
+  ruleFollowing_prior = rbeta(nrow(draws_df_0.6), 1, 1)
+)
+
+# Now let's plot the density for theta (prior and posterior)
+ggplot(draws_df_0.6) +
+  geom_density(aes(ruleFollowing), fill = "blue", alpha = 0.3) +
+  geom_density(aes(ruleFollowing_prior), fill = "red", alpha = 0.3) +
+  geom_vline(xintercept = 0.6, linetype = "dashed", color = "black", size = 1.5) +
+  xlab("Rate") +
+  ylab("Posterior Density") +
+  theme_classic()
+
+
+plot_0.8
+
+# add a prior for theta (ugly, but we'll do better soon)
+draws_df_0.8<- draws_df_0.8 %>% mutate(
+  ruleFollowing_prior = rbeta(nrow(draws_df_0.8), 1, 1)
+)
+
+# Now let's plot the density for theta (prior and posterior)
+ggplot(draws_df_0.8) +
+  geom_density(aes(ruleFollowing), fill = "blue", alpha = 0.3) +
+  geom_density(aes(ruleFollowing_prior), fill = "red", alpha = 0.3) +
+  geom_vline(xintercept = 0.8, linetype = "dashed", color = "black", size = 1.5) +
+  xlab("Rate") +
+  ylab("Posterior Density") +
+  theme_classic()
+```
+
+
+
+```{r}
+#empty column
+df$strategy_choice <- NA
+
+#Transform
+df$strategy_choice[df$Other == 1 & df$Self == 1] <- 1 #self wins on right, goes right
+df$strategy_choice[df$Other == 1 & df$Self == 0] <- 1 #self loses on left, goes right
+df$strategy_choice[df$Other == 0 & df$Self == 1] <- -1 #self loses on right, goes left
+df$strategy_choice[df$Other == 0 & df$Self == 0] <- -1 #self wins on left, goes left
+
+#df$Other[df$Other == 0 ] <- -1 #self wins on right, goes right
+#df$Self[df$Self == 0] <- -1 
+
+insert_value = NA
+
+#shift strategy choice one down
+df = df %>%
+   mutate(strategy_choice = lag(strategy_choice, n = 1, default = insert_value))
+
+#exclude first trial
+df = df[-1,]
+
+df
+```
+
+
 
 **Transform the data to the appropriate form**
 
@@ -117,10 +362,10 @@ for (i in 1:10){
 df$Feedback <- NA
 
 #Transform feedback
-df$Feedback[df$Other == 1 & df$Self == 1] <- 1 #self wins on right, goes right
-df$Feedback[df$Other == 1 & df$Self == 0] <- 1 #self loses on left, goes right
-df$Feedback[df$Other == 0 & df$Self == 1] <- -1 #self loses on right, goes left
-df$Feedback[df$Other == 0 & df$Self == 0] <- -1 #self wins on left, goes left
+#df$Feedback[df$Other == 1 & df$Self == 1] <- 1 #self wins on right, goes right
+#df$Feedback[df$Other == 1 & df$Self == 0] <- 1 #self loses on left, goes right
+#df$Feedback[df$Other == 0 & df$Self == 1] <- -1 #self loses on right, goes left
+#df$Feedback[df$Other == 0 & df$Self == 0] <- -1 #self wins on left, goes left
 
 
 #df$Other[df$Other == 0 ] <- -1 #self wins on right, goes right
@@ -131,7 +376,7 @@ df$Feedback[df$Other == 0 & df$Self == 0] <- -1 #self wins on left, goes left
 data <- list(
   n_trials = nrow(df),  # n of trials
   choice = df$Self, # sequence of choices
-  strategy_choice = df$Feedback # whether or not agent is choosing right 
+  strategy_choice = df$strategy_choice # whether or not agent is choosing right 
 )
 
 data
@@ -181,6 +426,8 @@ samples <- mod$sample(
 
 #extract summary 
 samples$summary()
+
+samples$summary("ruleFollowing")
 
 # Extract posterior samples and include sampling of the prior:
 draws_df <- as_draws_df(samples$draws())
