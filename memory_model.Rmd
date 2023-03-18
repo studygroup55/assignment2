@@ -1,0 +1,107 @@
+---
+title: "memory_model.Rmd"
+output: html_document
+date: "2023-03-14"
+---
+Implementation of a simple memory model, parameter recovery, and testing of trial number + priors. (commented pr line in Stan)
+
+Including multilevel (parameter recovery) and/or empirical data (analyze) in the report.
+
+Empirical datasets:
+- Guide to the data: https://www.dropbox.com/s/m1u5roo4z0f2emr/readme.txt?dl=0
+- Non-human primates dataset: https://www.dropbox.com/s/8fj7k5jk8mn4j63/mp_primates.csv?dl=0
+- Human primates dataset (former CogSci'ers): https://www.dropbox.com/s/9z6hcg9b4yhzgbu/mp_students.csv?dl=0
+https://www.dropbox.com/s/r2ok23vjewyelaz/mp_students_22.csv?dl=0
+- Clinical dataset (schizophrenia and controls): https://www.dropbox.com/s/dxj9f8txg1yax68/mp_schizophrenia.csv?dl=0
+
+**Testing agent simulation** 
+
+```{r}
+#Loading packages
+pacman::p_load("rstan", "tidyverse", "reshape2", "ggdag", "cmdstanr", "posterior", "brms")
+```
+
+
+**Inspi/other agents**
+```{r}
+#Agent we defined in class
+EMA_agent <- function(alpha, beta, bias, other_choice, memory){
+  choice <- rbinom(1,1, inv_logit_scaled(bias + beta + inv_logit_scaled(memory)))
+  return(choice)
+  }
+
+#Riccardo's memory agent from here https://fusaroli.github.io/AdvancedCognitiveModeling2023/multilevel-modeling.html#generating-the-agents 
+MemoryAgentNoise_f <- function(bias, beta, otherRate, noise) {
+  rate <- inv_logit_scaled(bias + beta * logit_scaled(otherRate))
+  choice <- rbinom(1, 1, rate)
+  if (rbinom(1, 1, noise) == 1) {
+    choice = rbinom(1, 1, 0.5)
+  }
+  return(choice)
+}
+
+```
+
+**Testing another definition**
+```{r}
+
+#Define a random agent
+RandomAgent_f <- function(rate){
+  choice <- rbinom(1, 1, rate)
+  return(choice)
+}
+
+#Another suggestion for a memory agent
+EMA_Agent_f <- function(alpha, beta, bias, otherChoice, n_trials){
+  memory <- rep(mean(otherChoice), n_trials) #create a memory vector with an initial memory value (could be anything, here mean of otherchoice)
+  for (trial in 1:n_trials){ #create the EMA estimates for each timepoint/trial
+    memory[trial + 1] <- alpha * memory[trial] + (1 - alpha) * otherChoice[trial]
+  }
+  choice <- rbinom(1,1, inv_logit_scaled(bias + beta + inv_logit_scaled(memory)))
+  return(choice)
+}
+```
+
+**Simulating**
+```{r}
+#Simulating the memory agent data
+
+rate <- 0.5
+alpha <- 0.5
+beta <- 0.5
+bias <- 0.5
+n_trials <- 120
+
+#Define empty vectors
+Self <- rep(NA, n_trials)
+Other <- rep(NA, n_trials)
+
+#Define random first choice for player
+Self[1] <- RandomAgent_f(0.5)
+
+#Simulate data
+#Other - random agent
+for (t in seq(n_trials)){Other[t] <- RandomAgent_f(rate)}
+#Self - memory agent
+for (i in 2:n_trials){
+  Self[i] <- EMA_Agent_f(alpha, beta, bias, Other[i-1], n_trials)
+}
+
+#Create df
+df <- tibble(Self, Other, trial = seq(n_trials))
+
+df
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
