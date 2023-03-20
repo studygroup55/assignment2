@@ -48,19 +48,25 @@ MemoryAgentNoise_f <- function(bias, beta, otherRate, noise) {
 #Define a random agent
 RandomAgent_f <- function(rate){
   choice <- rbinom(1, 1, rate)
+  
+  if (choice == 0){
+    choice = -1
+  }
   return(choice)
 }
 
 #Another suggestion for a memory agent
-EMA_Agent_f <- function(alpha, beta, bias, otherChoice, n_trials){
-  memory <- rep(mean(otherChoice), n_trials) #create a memory vector with an initial memory value (could be anything, here mean of otherchoice)
-  for (trial in 1:n_trials){ #create the EMA estimates for each timepoint/trial
-    memory[trial + 1] <- alpha * memory[trial] + (1 - alpha) * otherChoice[trial]
+EMA_Agent_f <- function(beta, bias, memory, n_trials){
+
+  choice <- rbinom(1,1, inv_logit_scaled(bias + beta * inv_logit_scaled(memory)))
+  
+  if (choice == 0){
+    choice = -1
   }
-  choice <- rbinom(1,1, inv_logit_scaled(bias + beta + inv_logit_scaled(memory)))
   return(choice)
 }
 ```
+
 
 **Simulating**
 ```{r}
@@ -83,14 +89,21 @@ Self[1] <- RandomAgent_f(0.5)
 #Other - random agent
 for (t in seq(n_trials)){Other[t] <- RandomAgent_f(rate)}
 #Self - memory agent
-for (i in 2:n_trials){
-  Self[i] <- EMA_Agent_f(alpha, beta, bias, Other[i-1], n_trials)
+memory <- rep(0, n_trials) #create a memory vector with an initial memory value (could be anything)
+
+for (i in 1:n_trials){
+  Self[i] <- EMA_Agent_f(beta, bias, memory[i], n_trials)
+  memory[i + 1] <- alpha * memory[i] + (1 - alpha) * Other[i]
 }
 
+
+memory <- inv_logit_scaled(memory[1:120])
+
 #Create df
-df <- tibble(Self, Other, trial = seq(n_trials))
+df <- tibble(Self, Other, memory, trial = seq(n_trials))
 
 df
+
 
 ```
 
