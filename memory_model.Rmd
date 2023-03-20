@@ -82,9 +82,6 @@ n_trials <- 120
 Self <- rep(NA, n_trials)
 Other <- rep(NA, n_trials)
 
-#Define random first choice for player
-Self[1] <- RandomAgent_f(0.5)
-
 #Simulate data
 #Other - random agent
 for (t in seq(n_trials)){Other[t] <- RandomAgent_f(rate)}
@@ -107,13 +104,233 @@ df
 
 ```
 
+```{r}
+
+#Making Self_choice 0 and 1, cause we need that in the bernoulli in the stan model
+df <- df %>% 
+  mutate(Self = ifelse(Self == -1, 0, Self))
 
 
 
+#Transform data to lists
+data <- list(
+  n_trials = nrow(df),  # n of trials
+  choice = df$Self, # sequence of choices
+  other = df$Other # sequence of the other agents choices
+    )
+```
 
 
 
+```{r}
+file <- file.path("Memory_agent.stan")
+  mod <- cmdstan_model(file, 
+                       # this specifies we can parallelize the gradient estimations on multiple cores
+                       cpp_options = list(stan_threads = TRUE), 
+                       # this is a trick to make it faster
+                       stanc_options = list("O1")) 
+  
+  #extract samples
+  samples <- mod$sample(
+    data = data, # the data :-)
+    seed = 123,  # a seed, so I always get the same results
+    chains = 2,  # how many chains should I fit (to check whether they give the same results)
+    parallel_chains = 2, # how many of the chains can be run in parallel?
+    threads_per_chain = 2, # distribute gradient estimations within chain across multiple cores
+    iter_warmup = 1000,  # warmup iterations through which hyperparameters (steps and step length) are adjusted
+    iter_sampling = 2000, # total number of iterations
+    refresh = 0,  # how often to show that iterations have been run
+    max_treedepth = 20, # how many steps in the future to check to avoid u-turns
+    adapt_delta = 0.99, # how high a learning rate to adjust hyperparameters during warmup
+  )
+  
+  #extract summary 
+  samples$summary()
+  
+  # Extract posterior samples and include sampling of the prior:
+  draws_df <- as_draws_df(samples$draws())
 
+  
+  # Checking the model's chains (noise)
+  ggplot(draws_df, aes(.iteration, alpha, group = .chain, color = .chain)) +
+      geom_line() +
+      theme_classic()
+
+```
+
+#Making a function 
+
+```{r}
+list_of_dfs <- list()
+temp <- list()
+recovery_df <- data.frame()
+#n_trials = 500
+
+
+for(alpha_lvl in seq(0, 1, 0.1)){
+  alpha = alpha_lvl
+  n_trials = 500
+  rate <- 0.5
+  beta <- 0.5
+  bias <- 0.5
+  
+  #Define empty vectors
+  Self <- rep(NA, n_trials)
+  Other <- rep(NA, n_trials)
+  
+  #Run simulation
+  for (t in seq(n_trials)){Other[t] <- RandomAgent_f(rate)}
+  
+  #Self - memory agent
+  memory <- rep(0, n_trials) #create a memory vector with an initial memory value (could be anything)
+  
+  for (i in 1:n_trials){
+    Self[i] <- EMA_Agent_f(beta, bias, memory[i], n_trials)
+    memory[i + 1] <- alpha * memory[i] + (1 - alpha) * Other[i]
+  }
+  
+  
+  memory <- inv_logit_scaled(memory[1:n_trials])
+  
+  #Create df
+  df <- tibble(Self, Other, memory, trial = seq(n_trials))
+  
+  
+  #Making Self_choice 0 and 1, cause we need that in the bernoulli in the stan model
+  df <- df %>% 
+    mutate(Self = ifelse(Self == -1, 0, Self))
+  
+  
+  
+  #Transform data to lists
+  data <- list(
+    n_trials = nrow(df),  # n of trials
+    choice = df$Self, # sequence of choices
+    other = df$Other # sequence of the other agents choices
+      )
+  
+  
+  
+  file <- file.path("Memory_agent.stan")
+  mod <- cmdstan_model(file, 
+                       # this specifies we can parallelize the gradient estimations on multiple cores
+                       cpp_options = list(stan_threads = TRUE), 
+                       # this is a trick to make it faster
+                       stanc_options = list("O1")) 
+  
+  #extract samples
+  samples <- mod$sample(
+    data = data, # the data :-)
+    seed = 123,  # a seed, so I always get the same results
+    chains = 2,  # how many chains should I fit (to check whether they give the same results)
+    parallel_chains = 2, # how many of the chains can be run in parallel?
+    threads_per_chain = 2, # distribute gradient estimations within chain across multiple cores
+    iter_warmup = 1000,  # warmup iterations through which hyperparameters (steps and step length) are adjusted
+    iter_sampling = 2000, # total number of iterations
+    refresh = 0,  # how often to show that iterations have been run
+    max_treedepth = 20, # how many steps in the future to check to avoid u-turns
+    adapt_delta = 0.99, # how high a learning rate to adjust hyperparameters during warmup
+  )
+  
+  #extract summary 
+  samples$summary()
+  
+  # Extract posterior samples and include sampling of the prior:
+  draws_df <- as_draws_df(samples$draws())
+
+  
+  # Checking the model's chains (noise)
+  temp = ggplot(draws_df, aes(.iteration, alpha, group = .chain, color = .chain)) +
+      geom_line() +
+      theme_classic()
+  
+  # assign function within loop
+  assign(paste0("plot_", alpha_lvl), temp)
+
+  assign(paste0("draws_df_", alpha_lvl), draws_df)
+  
+  recovery_df <- rbind(recovery_df, samples$summary("alpha"),samples$summary("beta"),samples$summary("bias"))
+  
+  #assign(paste0("recovery_", ruleFollowing_lvl), samples$summary("ruleFollowing"))
+  
+}
+```
+
+```{r}
+plot_0.2
+
+# add a prior for theta (ugly, but we'll do better soon)
+draws_df_0.2<- draws_df_0.2 %>% mutate(
+  alpha_prior = rbeta(nrow(draws_df_0.2), 1, 1)
+)
+
+# Now let's plot the density for theta (prior and posterior)
+ggplot(draws_df_0.2) +
+  geom_density(aes(alpha), fill = "blue", alpha = 0.3) +
+  geom_density(aes(alpha_prior), fill = "red", alpha = 0.3) +
+  geom_vline(xintercept = 0.2, linetype = "dashed", color = "black", size = 1.5) +
+  xlab("Rate") +
+  ylab("Posterior Density") +
+  theme_classic()
+
+
+
+plot_0.4
+
+# add a prior for theta (ugly, but we'll do better soon)
+draws_df_0.4<- draws_df_0.4 %>% mutate(
+  alpha_prior = rbeta(nrow(draws_df_0.4), 1, 1)
+)
+
+# Now let's plot the density for theta (prior and posterior)
+ggplot(draws_df_0.4) +
+  geom_density(aes(alpha), fill = "blue", alpha = 0.3) +
+  geom_density(aes(alpha_prior), fill = "red", alpha = 0.3) +
+  geom_vline(xintercept = 0.4, linetype = "dashed", color = "black", size = 1.5) +
+  xlab("Rate") +
+  ylab("Posterior Density") +
+  theme_classic()
+
+
+plot_0.6
+
+# add a prior for theta (ugly, but we'll do better soon)
+draws_df_0.6<- draws_df_0.6 %>% mutate(
+  alpha_prior = rbeta(nrow(draws_df_0.6), 1, 1)
+)
+
+# Now let's plot the density for theta (prior and posterior)
+ggplot(draws_df_0.6) +
+  geom_density(aes(alpha), fill = "blue", alpha = 0.3) +
+  geom_density(aes(alpha_prior), fill = "red", alpha = 0.3) +
+  geom_vline(xintercept = 0.6, linetype = "dashed", color = "black", size = 1.5) +
+  xlab("Rate") +
+  ylab("Posterior Density") +
+  theme_classic()
+
+
+plot_0.8
+
+# add a prior for theta (ugly, but we'll do better soon)
+draws_df_0.8 <- draws_df_0.8 %>% mutate(
+  alpha_prior = rbeta(nrow(draws_df_0.8), 1, 1)
+)
+
+# Now let's plot the density for theta (prior and posterior)
+ggplot(draws_df_0.8) +
+  geom_density(aes(alpha), fill = "blue", alpha = 0.3) +
+  geom_density(aes(alpha_prior), fill = "red", alpha = 0.3) +
+  geom_vline(xintercept = 0.8, linetype = "dashed", color = "black", size = 1.5) +
+  xlab("Rate") +
+  ylab("Posterior Density") +
+  theme_classic()
+```
+
+
+
+```{r}
+recovery_df
+```
 
 
 
