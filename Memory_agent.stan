@@ -34,7 +34,7 @@ model {
     if (trial == 1) {
       memory[trial] = 0.5;
     }
-    target += bernoulli_logit_lpmf(h[trial] | bias + beta * inv_logit(memory[trial]));
+    target += bernoulli_logit_lpmf(choice[trial] | bias + beta * inv_logit(memory[trial]));
     
     if (trial < n_trials){
       memory[trial + 1] = alpha * memory[trial] + (1-alpha) * other[trial]; # Exponential moving average
@@ -43,8 +43,10 @@ model {
 }
 
 generated quantities {
-  vector[n_trials] memory_p;
-  memory_p = inv_logit(memory);
+  real bias_p;
+  bias_p = inv_logit(bias);
+  real beta_p;
+  beta_p = inv_logit(beta);
 }
 
  

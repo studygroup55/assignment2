@@ -171,7 +171,7 @@ for(alpha_lvl in seq(0, 1, 0.1)){
   alpha = alpha_lvl
   n_trials = 500
   rate <- 0.5
-  beta <- 0.5
+  beta <- 0.9
   bias <- 0.5
   
   #Define empty vectors
@@ -211,7 +211,7 @@ for(alpha_lvl in seq(0, 1, 0.1)){
   
   
   
-  file <- file.path("Memory_agent.stan")
+  file <- file.path("Memory_agent_new.stan")
   mod <- cmdstan_model(file, 
                        # this specifies we can parallelize the gradient estimations on multiple cores
                        cpp_options = list(stan_threads = TRUE), 
@@ -249,7 +249,7 @@ for(alpha_lvl in seq(0, 1, 0.1)){
 
   assign(paste0("draws_df_", alpha_lvl), draws_df)
   
-  recovery_df <- rbind(recovery_df, samples$summary("alpha"),samples$summary("beta"),samples$summary("bias"))
+  recovery_df <- rbind(recovery_df, samples$summary("alpha"),samples$summary("beta_p"),samples$summary("bias_p"))
   
   #assign(paste0("recovery_", ruleFollowing_lvl), samples$summary("ruleFollowing"))
   
