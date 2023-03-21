@@ -22,27 +22,7 @@ pacman::p_load("rstan", "tidyverse", "reshape2", "ggdag", "cmdstanr", "posterior
 ```
 
 
-**Inspi/other agents**
-```{r}
-#Agent we defined in class
-EMA_agent <- function(alpha, beta, bias, other_choice, memory){
-  choice <- rbinom(1,1, inv_logit_scaled(bias + beta + inv_logit_scaled(memory)))
-  return(choice)
-  }
-
-#Riccardo's memory agent from here https://fusaroli.github.io/AdvancedCognitiveModeling2023/multilevel-modeling.html#generating-the-agents 
-MemoryAgentNoise_f <- function(bias, beta, otherRate, noise) {
-  rate <- inv_logit_scaled(bias + beta * logit_scaled(otherRate))
-  choice <- rbinom(1, 1, rate)
-  if (rbinom(1, 1, noise) == 1) {
-    choice = rbinom(1, 1, 0.5)
-  }
-  return(choice)
-}
-
-```
-
-**Testing another definition**
+**Defining the agents**
 ```{r}
 
 #Define a random agent
@@ -68,7 +48,7 @@ EMA_Agent_f <- function(beta, bias, memory, n_trials){
 ```
 
 
-**Simulating**
+**Simulation**
 ```{r}
 #Simulating the memory agent data
 
@@ -93,18 +73,17 @@ for (i in 1:n_trials){
   memory[i + 1] <- alpha * memory[i] + (1 - alpha) * Other[i]
 }
 
+```
+
+
+**Transforming the data to the appropriate form**
+```{r}
 
 memory <- inv_logit_scaled(memory[1:120])
 
 #Create df
 df <- tibble(Self, Other, memory, trial = seq(n_trials))
 
-df
-
-
-```
-
-```{r}
 
 #Making Self_choice 0 and 1, cause we need that in the bernoulli in the stan model
 df <- df %>% 
@@ -121,9 +100,9 @@ data <- list(
 ```
 
 
-
+**Compile and fit the model**
 ```{r}
-file <- file.path("Memory_agent.stan")
+file <- file.path("memory_agent.stan")
   mod <- cmdstan_model(file, 
                        # this specifies we can parallelize the gradient estimations on multiple cores
                        cpp_options = list(stan_threads = TRUE), 
@@ -146,6 +125,7 @@ file <- file.path("Memory_agent.stan")
   
   #extract summary 
   samples$summary()
+
   
   # Extract posterior samples and include sampling of the prior:
   draws_df <- as_draws_df(samples$draws())
@@ -158,7 +138,8 @@ file <- file.path("Memory_agent.stan")
 
 ```
 
-#Making a function 
+
+*Function for simulating with different values for alpha*
 
 ```{r}
 list_of_dfs <- list()
@@ -211,7 +192,7 @@ for(alpha_lvl in seq(0, 1, 0.1)){
   
   
   
-  file <- file.path("Memory_agent_new.stan")
+  file <- file.path("memory_agent.stan")
   mod <- cmdstan_model(file, 
                        # this specifies we can parallelize the gradient estimations on multiple cores
                        cpp_options = list(stan_threads = TRUE), 
@@ -249,13 +230,13 @@ for(alpha_lvl in seq(0, 1, 0.1)){
 
   assign(paste0("draws_df_", alpha_lvl), draws_df)
   
-  recovery_df <- rbind(recovery_df, samples$summary("alpha"),samples$summary("beta_p"),samples$summary("bias_p"))
-  
-  #assign(paste0("recovery_", ruleFollowing_lvl), samples$summary("ruleFollowing"))
+  recovery_df <- rbind(recovery_df, samples$summary("alpha"), samples$summary("beta_p"), samples$summary("bias_p"))
   
 }
 ```
 
+
+**Plots for different values of alpha**
 ```{r}
 plot_0.2
 
@@ -327,7 +308,7 @@ ggplot(draws_df_0.8) +
 ```
 
 
-
+**Looking at the recoveries**
 ```{r}
 recovery_df
 ```

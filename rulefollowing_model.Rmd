@@ -34,41 +34,10 @@ https://ourcodingclub.github.io/tutorials/stan-intro/
 https://vasishth.github.io/bayescogsci/book/ch-introstan.html
 
 
-**TO DO**
+*TEST: For single game between WSLS / random*
 
-- Make a new model apart from the WSS-LSS one
-- Create DAGs for both models https://cran.r-project.org/web/packages/ggdag/vignettes/intro-to-dags.html 
-
-
+**Defining the agents**
 ```{r}
-dagify(choice ~ x) %>%
-  ggdag()
-```
-
-
-**TEST: For single game between WSLS / random**
-
-First, simulate the data
-
-```{r}
-# 
-# #Defining agent function
-# WSLSAgent_f <- function(prevChoice, Feedback, ruleFollowing) {
-#   
-#   if(rbinom(1,1, 1-ruleFollowing)==1){
-#   choice <- rbinom(1,1,0.5)
-#   }
-#   
-#   else if (Feedback == 1) {      #If feedback = 1 (win), stay
-#     choice = prevChoice
-#   }
-#   else if (Feedback == 0) { #If feedback = 0 (loss), shift
-#     choice = 1 - prevChoice
-#   }
-#   return(choice)
-# }
-
-
 #Attempt at changing it 
 WSLSAgent_f <- function(prevChoice, Feedback, ruleFollowing) {
   if (ruleFollowing != 0){
@@ -101,6 +70,11 @@ RandomAgent_f <- function(rate){
   return(choice)
 }
 
+```
+
+
+**Simulation**
+```{r}
 #Define rate
 random_rate <- 0.5
 
@@ -131,9 +105,94 @@ for (i in 2:trials){
 df <- tibble(Self, Other, trial = seq(trials), Feedback = as.numeric(Self == Other))
 ```
 
+
+**Transforming the data to the appropriate form**
+```{r}
+#empty column
+df$strategy_choice <- NA
+
+#Transform
+df$strategy_choice[df$Other == 1 & df$Self == 1] <- 1 #self wins on right, goes right
+df$strategy_choice[df$Other == 1 & df$Self == 0] <- 1 #self loses on left, goes right
+df$strategy_choice[df$Other == 0 & df$Self == 1] <- -1 #self loses on right, goes left
+df$strategy_choice[df$Other == 0 & df$Self == 0] <- -1 #self wins on left, goes left
+
+#df$Other[df$Other == 0 ] <- -1 #self wins on right, goes right
+#df$Self[df$Self == 0] <- -1 
+
+insert_value = NA
+
+#shift strategy choice one down
+df = df %>%
+   mutate(strategy_choice = lag(strategy_choice, n = 1, default = insert_value))
+
+#exclude first trial
+df = df[-1,]
+
+df$Feedback <- NA
+
+
+#Transform to list
+data <- list(
+  n_trials = nrow(df),  # n of trials
+  choice = df$Self, # sequence of choices
+  strategy_choice = df$strategy_choice # whether or not agent is choosing right 
+)
+
+data
+```
+
+
+**Compile and fit the model**
+```{r}
+#collect stan model
+file <- file.path("rulefollowing_agent.stan")
+mod <- cmdstan_model(file, 
+                     # this specifies we can parallelize the gradient estimations on multiple cores
+                     cpp_options = list(stan_threads = TRUE), 
+                     # this is a trick to make it faster
+                     stanc_options = list("O1")) 
+
+#extract samples
+samples <- mod$sample(
+  data = data, # the data :-)
+  seed = 123,  # a seed, so I always get the same results
+  chains = 2,  # how many chains should I fit (to check whether they give the same results)
+  parallel_chains = 2, # how many of the chains can be run in parallel?
+  threads_per_chain = 2, # distribute gradient estimations within chain across multiple cores
+  iter_warmup = 1000,  # warmup iterations through which hyperparameters (steps and step length) are adjusted
+  iter_sampling = 2000, # total number of iterations
+  refresh = 0,  # how often to show that iterations have been run
+  max_treedepth = 20, # how many steps in the future to check to avoid u-turns
+  adapt_delta = 0.99, # how high a learning rate to adjust hyperparameters during warmup
+)
+
+#extract summary 
+samples$summary()
+
+samples$summary("ruleFollowing")
+
+# Extract posterior samples and include sampling of the prior:
+draws_df <- as_draws_df(samples$draws())
+
+# Checking the model's chains (noise)
+ggplot(draws_df, aes(.iteration,  ruleFollowing, group = .chain, color = .chain)) +
+  geom_line() +
+  theme_classic()
+
+# Checking the model's chains (rate)
+ggplot(draws_df, aes(.iteration, rate, group = .chain, color = .chain)) +
+  geom_line() +
+  theme_classic()
+
+```
+
+
+
+*Function for simulating with different values for rulefollowing*
+
 ```{r}
 #Simulating with different values for ruleFollowing 
-
 list_of_dfs <- list()
 temp <- list()
 recovery_df <- data.frame()
@@ -173,9 +232,6 @@ for(ruleFollowing_lvl in seq(0, 1, 0.1)){
   df$strategy_choice[df$Other == 0 & df$Self == 1] <- -1 #self loses on right, goes left
   df$strategy_choice[df$Other == 0 & df$Self == 0] <- -1 #self wins on left, goes left
   
-  #df$Other[df$Other == 0 ] <- -1 #self wins on right, goes right
-  #df$Self[df$Self == 0] <- -1 
-  
   insert_value = NA
   
   #shift strategy choice one down
@@ -185,21 +241,6 @@ for(ruleFollowing_lvl in seq(0, 1, 0.1)){
   #exclude first trial
   df = df[-1,]
   
-  df
-  
-  df$Feedback <- NA
-
-  #Transform feedback
-  #df$Feedback[df$Other == 1 & df$Self == 1] <- 1 #self wins on right, goes right
-  #df$Feedback[df$Other == 1 & df$Self == 0] <- 1 #self loses on left, goes right
-  #df$Feedback[df$Other == 0 & df$Self == 1] <- -1 #self loses on right, goes left
-  #df$Feedback[df$Other == 0 & df$Self == 0] <- -1 #self wins on left, goes left
-  
-  
-  #df$Other[df$Other == 0 ] <- -1 #self wins on right, goes right
-  #df$Self[df$Self == 0] <- -1 
-  
-  
   #Transform to list
   data <- list(
     n_trials = nrow(df),  # n of trials
@@ -207,7 +248,7 @@ for(ruleFollowing_lvl in seq(0, 1, 0.1)){
     strategy_choice = df$strategy_choice # whether or not agent is choosing right 
     )
   
-  file <- file.path("matching_pennies_test_no_rate.stan")
+  file <- file.path("rulefollowing_agent.stan")
   mod <- cmdstan_model(file, 
                        # this specifies we can parallelize the gradient estimations on multiple cores
                        cpp_options = list(stan_threads = TRUE), 
@@ -254,6 +295,8 @@ for(ruleFollowing_lvl in seq(0, 1, 0.1)){
   
 ```
 
+
+**Plots for different values of rulefollowing**
 ```{r}
 plot_0.2
 
@@ -325,203 +368,10 @@ ggplot(draws_df_0.8) +
 ```
 
 
-
+**Looking at the recoveries**
 ```{r}
-#empty column
-df$strategy_choice <- NA
-
-#Transform
-df$strategy_choice[df$Other == 1 & df$Self == 1] <- 1 #self wins on right, goes right
-df$strategy_choice[df$Other == 1 & df$Self == 0] <- 1 #self loses on left, goes right
-df$strategy_choice[df$Other == 0 & df$Self == 1] <- -1 #self loses on right, goes left
-df$strategy_choice[df$Other == 0 & df$Self == 0] <- -1 #self wins on left, goes left
-
-#df$Other[df$Other == 0 ] <- -1 #self wins on right, goes right
-#df$Self[df$Self == 0] <- -1 
-
-insert_value = NA
-
-#shift strategy choice one down
-df = df %>%
-   mutate(strategy_choice = lag(strategy_choice, n = 1, default = insert_value))
-
-#exclude first trial
-df = df[-1,]
-
-df
+recovery_df
 ```
-
-
-
-**Transform the data to the appropriate form**
-
-```{r}
-#Firstly, we need to transform feedback into a variable capturing the rate of which an agent chooses right. That means that we code every left choice as -1 and every right choice as 1 (thus centering equal distribution of left/right choices to 0).
-
-#NAs in feedback
-df$Feedback <- NA
-
-#Transform feedback
-#df$Feedback[df$Other == 1 & df$Self == 1] <- 1 #self wins on right, goes right
-#df$Feedback[df$Other == 1 & df$Self == 0] <- 1 #self loses on left, goes right
-#df$Feedback[df$Other == 0 & df$Self == 1] <- -1 #self loses on right, goes left
-#df$Feedback[df$Other == 0 & df$Self == 0] <- -1 #self wins on left, goes left
-
-
-#df$Other[df$Other == 0 ] <- -1 #self wins on right, goes right
-#df$Self[df$Self == 0] <- -1 
-
-
-#Transform to list
-data <- list(
-  n_trials = nrow(df),  # n of trials
-  choice = df$Self, # sequence of choices
-  strategy_choice = df$strategy_choice # whether or not agent is choosing right 
-)
-
-data
-```
-
-
-**Compile and fit the model**
-
-
-```{r}
-### DIFFERENT SYNTAX THAN RICCARDO ###
-
-#model_code <- readLines("matching_pennies_test.stan")
-#model <- stan_model(model_code = model_code)
-
-#fit <- sampling(model, data, chains = 4, iter = 2000, warmup = 1000)
-#summary(fit)
-```
-
-
-**SEE ISSUES NOTED WITHIN STAN CODE MATCHING_PENNIES_TEST** 
-
-```{r}
-### Riccardo's syntax ###
-
-#collect stan model
-file <- file.path("matching_pennies_test_no_rate.stan")
-mod <- cmdstan_model(file, 
-                     # this specifies we can parallelize the gradient estimations on multiple cores
-                     cpp_options = list(stan_threads = TRUE), 
-                     # this is a trick to make it faster
-                     stanc_options = list("O1")) 
-
-#extract samples
-samples <- mod$sample(
-  data = data, # the data :-)
-  seed = 123,  # a seed, so I always get the same results
-  chains = 2,  # how many chains should I fit (to check whether they give the same results)
-  parallel_chains = 2, # how many of the chains can be run in parallel?
-  threads_per_chain = 2, # distribute gradient estimations within chain across multiple cores
-  iter_warmup = 1000,  # warmup iterations through which hyperparameters (steps and step length) are adjusted
-  iter_sampling = 2000, # total number of iterations
-  refresh = 0,  # how often to show that iterations have been run
-  max_treedepth = 20, # how many steps in the future to check to avoid u-turns
-  adapt_delta = 0.99, # how high a learning rate to adjust hyperparameters during warmup
-)
-
-#extract summary 
-samples$summary()
-
-samples$summary("ruleFollowing")
-
-# Extract posterior samples and include sampling of the prior:
-draws_df <- as_draws_df(samples$draws())
-
-# Checking the model's chains (noise)
-ggplot(draws_df, aes(.iteration,  ruleFollowing, group = .chain, color = .chain)) +
-  geom_line() +
-  theme_classic()
-
-# Checking the model's chains (rate)
-ggplot(draws_df, aes(.iteration, rate, group = .chain, color = .chain)) +
-  geom_line() +
-  theme_classic()
-
-
- #### EXPERIMENTAL ####
-
-
-# add a prior for theta (ugly, but we'll do better soon)
-#draws_df <- draws_df %>% mutate(
-  #theta_prior = rbeta(nrow(draws_df), 1, 1)
-#)
-
-# Now let's plot the density for theta (prior and posterior)
-# ggplot(draws_df) +
-#   geom_density(aes(theta), fill = "blue", alpha = 0.3) +
-#   geom_density(aes(theta_prior), fill = "red", alpha = 0.3) +
-#   geom_vline(xintercept = 0.3, linetype = "dashed", color = "black", size = 1.5) + #change intercept according to noise parameter
-#   xlab("Theta (rate)") +
-#   ylab("Posterior Density") +
-#   theme_classic()
-
-
-# add a prior for noise (ugly, but we'll do better soon)
-# draws_df <- draws_df %>% mutate(
-#   noise_prior = rbeta(nrow(draws_df), 1, 1)
-# )
-# 
-# # Now let's plot the density for noise (prior and posterior)
-# ggplot(draws_df) +
-#   geom_density(aes(noise), fill = "blue", alpha = 0.3) +
-#   geom_density(aes(noise_prior), fill = "red", alpha = 0.3) +
-#   geom_vline(xintercept = 0.3, linetype = "dashed", color = "black", size = 1.5) + #change intercept according to noise parameter
-#   xlab("Noise") +
-#   ylab("Posterior Density") +
-#   theme_classic()
-
-```
-
-
-**TEST: For single game between memory / random**
-```{r}
-#Defining agent function
-MemoryAgent_f <- function(bias, prevRate, noise) {
-  choice = rbinom(1, 1, inv_logit_scaled(bias + prevRate*(1/noise)))
-  return(choice)
-}
-
-#Defining agent function
-RandomAgent_f <- function(rate){
-  choice <- rbinom(1, 1, rate)
-  return(choice)
-}
-
-#Define rate
-rate <- 0.5
-
-#Define bias
-bias <- 0.5
-
-#Define noise
-noise <- 0.01
-
-#Define number of trials
-trials = 120
-
-#Define empty vectors
-Self <- rep(NA, trials)
-Other <- rep(NA, trials)
-
-#Define random first choice for player
-Self[1] <- RandomAgent_f(0.5) #player
-
-#Run simulation
-for (t in seq(trials)){Other[t] <- RandomAgent_f(rate)}
-for (i in 2:trials){
-  prevRate = cumsum(Other)/i
-  Self[i] <- MemoryAgent_f(bias, prevRate, noise)
-}
-
-#show
-df <- tibble(Self, Other, trial = seq(trials), prevRate)
-```
-
 
 
 
