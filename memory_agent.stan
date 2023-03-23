@@ -34,7 +34,7 @@ model {
     if (trial == 1) {
       memory[trial] = 0.5;
     }
-    target += bernoulli_logit_lpmf(choice[trial] | bias + beta * inv_logit(memory[trial]));
+    target += bernoulli_logit_lpmf(choice[trial] | bias + beta * memory[trial]);
     
     if (trial < n_trials){
       memory[trial + 1] = alpha * memory[trial] + (1-alpha) * other[trial]; # Exponential moving average
@@ -43,10 +43,35 @@ model {
 }
 
 generated quantities {
-  real bias_p;
-  bias_p = inv_logit(bias);
-  real beta_p;
-  beta_p = inv_logit(beta);
+  real bias_prior;
+  real beta_prior;
+  real alpha_prior;
+  real bias_posterior;
+  real beta_posterior;
+  real alpha_posterior;
+  int<lower=0, upper=n_trials> bias_prior_preds;
+  int<lower=0, upper=n_trials> beta_prior_preds;
+  int<lower=0, upper=n_trials> alpha_prior_preds;
+  int<lower=0, upper=n_trials> bias_posterior_preds;
+  int<lower=0, upper=n_trials> beta_posterior_preds;
+  int<lower=0, upper=n_trials> alpha_posterior_preds;
+  
+  bias_prior = inv_logit(normal_rng(0, .3));
+  beta_prior = inv_logit(normal_rng(0, .5));
+  alpha_prior = inv_logit(beta_rng(1, 1));
+  
+  bias_posterior = inv_logit(bias);
+  beta_posterior = inv_logit(beta);
+  alpha_posterior = inv_logit(alpha);
+  
+  bias_prior_preds = binomial_rng(n_trials, bias_prior);
+  beta_prior_preds = binomial_rng(n_trials, beta_prior);
+  alpha_prior_preds = binomial_rng(n_trials, alpha_prior);
+  
+  bias_posterior_preds = binomial_rng(n_trials, bias_posterior);
+  beta_posterior_preds = binomial_rng(n_trials, beta_posterior);
+  alpha_posterior_preds = binomial_rng(n_trials, alpha_posterior);
+  
 }
 
  

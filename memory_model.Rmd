@@ -23,8 +23,8 @@ pacman::p_load("rstan", "tidyverse", "reshape2", "ggdag", "cmdstanr", "posterior
 
 
 **Defining the agents**
-```{r}
 
+```{r}
 #Define a random agent
 RandomAgent_f <- function(rate){
   choice <- rbinom(1, 1, rate)
@@ -37,8 +37,8 @@ RandomAgent_f <- function(rate){
 
 #Another suggestion for a memory agent
 EMA_Agent_f <- function(beta, bias, memory, n_trials){
-
-  choice <- rbinom(1,1, inv_logit_scaled(bias + beta * inv_logit_scaled(memory)))
+  
+  choice <- rbinom(1,1, inv_logit_scaled(bias + beta * memory))
   
   if (choice == 0){
     choice = -1
@@ -47,13 +47,12 @@ EMA_Agent_f <- function(beta, bias, memory, n_trials){
 }
 ```
 
-
 **Simulation**
 ```{r}
 #Simulating the memory agent data
 
 rate <- 0.5
-alpha <- 0.5
+alpha <- 0.2
 beta <- 0.5
 bias <- 0.5
 n_trials <- 120
@@ -79,7 +78,7 @@ for (i in 1:n_trials){
 **Transforming the data to the appropriate form**
 ```{r}
 
-memory <- inv_logit_scaled(memory[1:120])
+memory <- memory[1:120]
 
 #Create df
 df <- tibble(Self, Other, memory, trial = seq(n_trials))
@@ -148,12 +147,14 @@ recovery_df <- data.frame()
 #n_trials = 500
 
 
-for(alpha_lvl in seq(0, 1, 0.1)){
+for(alpha_lvl in seq(0, 1, 0.2)){
+  set.seed(1982)
+  
   alpha = alpha_lvl
-  n_trials = 500
-  rate <- 0.5
-  beta <- 0.9
-  bias <- 0.5
+  n_trials = 120
+  rate <- 0.7
+  beta <- 0.9 
+  bias <- 0.5 #NB this is on a logodds scale, so it has a small bias towards right 
   
   #Define empty vectors
   Self <- rep(NA, n_trials)
@@ -171,7 +172,7 @@ for(alpha_lvl in seq(0, 1, 0.1)){
   }
   
   
-  memory <- inv_logit_scaled(memory[1:n_trials])
+  memory <- memory[1:n_trials]
   
   #Create df
   df <- tibble(Self, Other, memory, trial = seq(n_trials))
@@ -230,7 +231,7 @@ for(alpha_lvl in seq(0, 1, 0.1)){
 
   assign(paste0("draws_df_", alpha_lvl), draws_df)
   
-  recovery_df <- rbind(recovery_df, samples$summary("alpha"), samples$summary("beta_p"), samples$summary("bias_p"))
+  recovery_df <- rbind(recovery_df, samples$summary("alpha"), samples$summary("beta"), samples$summary("bias"))
   
 }
 ```
@@ -308,11 +309,68 @@ ggplot(draws_df_0.8) +
 ```
 
 
+```{r}
+plot_0.2
+
+#ALPHA
+# add a prior for theta (ugly, but we'll do better soon)
+draws_df<- draws_df %>% mutate(
+  alpha_prior = rbeta(nrow(draws_df_0.2), 1, 1)
+)
+
+# Now let's plot the density for theta (prior and posterior)
+ggplot(draws_df) +
+  geom_density(aes(alpha), fill = "blue", alpha = 0.3) +
+  geom_density(aes(alpha_prior), fill = "red", alpha = 0.3) +
+  geom_vline(xintercept = 0.2, linetype = "dashed", color = "black", size = 1.5) +
+  xlab("Alpha") +
+  ylab("Posterior Density") +
+  theme_classic()
+
+
+
+#BIAS
+# Now let's plot the density for theta (prior and posterior)
+ggplot(draws_df_0.2) +
+  geom_density(aes(bias), fill = "blue", alpha = 0.3) +
+  geom_density(aes(bias_prior), fill = "red", alpha = 0.3) +
+  geom_vline(xintercept = 0.5, linetype = "dashed", color = "black", size = 1.5) +
+  xlab("Bias") +
+  ylab("Posterior Density") +
+  theme_classic()
+
+
+#BETA
+# Now let's plot the density for theta (prior and posterior)
+ggplot(draws_df_0.2) +
+  geom_density(aes(beta), fill = "blue", alpha = 0.3) +
+  geom_density(aes(beta_prior), fill = "red", alpha = 0.3) +
+  geom_vline(xintercept = 0.9, linetype = "dashed", color = "black", size = 1.5) +
+  xlab("Beta") +
+  ylab("Posterior Density") +
+  theme_classic()
+```
+
+
+
 **Looking at the recoveries**
 ```{r}
 recovery_df
 ```
 
+
+Assessing prior and posterior predictions
+```{r}
+#THIS NEEDS A LOT OF LOVE!
+
+ggplot(draws_df_0.2) +
+  geom_histogram(aes(alpha_prior_preds), color = "lightblue", fill = "blue", alpha = 0.3, bins = 90) +
+  geom_histogram(aes(alpha_posterior_preds), color = "darkblue", fill = "blue", alpha = 0.3, bins = 90) +
+  #geom_point(x = sum(data$choice), y = 0, color = "red", shape = 17, size = 5) +
+  xlab("Predicted heads out of 1000 trials") +
+  ylab("Posterior Density") +
+  theme_classic()
+```
 
 
 
