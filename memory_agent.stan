@@ -27,7 +27,7 @@ model {
   // Priors
   target += beta_lpdf(alpha | 1, 1);
   target += normal_lpdf(bias | 0, .3);
-  target += normal_lpdf(beta | 0, .5);
+  target += normal_lpdf(beta | 0, 1);
 
   // Model, looping to keep track of memory
   for (trial in 1:n_trials) {
@@ -57,7 +57,7 @@ generated quantities {
   int<lower=0, upper=n_trials> alpha_posterior_preds;
   
   bias_prior = inv_logit(normal_rng(0, .3));
-  beta_prior = inv_logit(normal_rng(0, .5));
+  beta_prior = inv_logit(normal_rng(0, 1));
   alpha_prior = inv_logit(beta_rng(1, 1));
   
   bias_posterior = inv_logit(bias);
