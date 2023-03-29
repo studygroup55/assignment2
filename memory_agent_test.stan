@@ -1,4 +1,3 @@
-
 // The input (data) for the model. n of trials and h for (right and left) hand
 
 data {
@@ -16,7 +15,7 @@ data {
 parameters {
   real bias; // how likely is the agent to pick right when the previous rate has no information (50-50)?
   real beta; // how strongly is previous rate impacting the decision?
-  real<lower=0, upper=1> alpha; #EMA smoothing factor
+  real<lower=0, upper=1> alpha;
 }
 
  
@@ -37,7 +36,7 @@ model {
     target += bernoulli_logit_lpmf(choice[trial] | bias + beta * memory[trial]);
     
     if (trial < n_trials){
-      memory[trial + 1] = alpha * memory[trial] + (1-alpha) * other[trial]; # Exponential moving average
+      memory[trial + 1] = alpha * memory[trial] + (1-alpha) * other[trial];
     }
   }
 }
@@ -59,8 +58,8 @@ generated quantities {
   int<lower=0, upper=n_trials> alpha_posterior_preds;
   
   // Simulating prior distributions in probability space
-  bias_prior = inv_logit(normal_rng(0, .3));
-  beta_prior = inv_logit(normal_rng(0, .5));
+  bias_prior = inv_logit(normal_rng(prior_mean_bias, prior_sd_bias));
+  beta_prior = inv_logit(normal_rng(prior_mean_beta, prior_sd_beta));
   alpha_prior = inv_logit(beta_rng(1, 1));
   
   // Converting our estimates from log-odds to probability
@@ -80,4 +79,3 @@ generated quantities {
   
 }
 
- 
