@@ -398,6 +398,7 @@ recovery_df
 
 
 Assessing prior and posterior predictions
+#have decided that this does not make sense for our model. It shows exactly the same as the plots above, just like a barplot instead of a distribution...
 ```{r}
 #THIS NEEDS A LOT OF LOVE! DOESNT WORK. RATE IS DIFFERENT PR. TRIAL SINCE IT IS LARGELY DETERMINED BY WHETHER LAST TRIAL WAS A WIN OR LOSS. 
 # draws_df_0.2 <- draws_df_0.2 %>% mutate(
@@ -412,18 +413,19 @@ Assessing prior and posterior predictions
 #   theme_classic()
 
 
-#IT IS POSSIBLE TO MAKE FOR RULEFOLLOWING, BUT I CANT FIGURE OUT IF IT MAKES SENCE RIGHT NOW
+#IT IS POSSIBLE TO MAKE FOR RULEFOLLOWING, BUT I CANT FIGURE OUT IF IT MAKES SENSE RIGHT NOW
 
-draws_df_0.2 <- draws_df_0.2 %>% mutate(
-  ruleFollowing_prior = rbeta(nrow(draws_df_0.2), 1, 1))
-
-ggplot(draws_df_0.2) +
-  geom_histogram(aes(ruleFollowing_prior), color = "lightblue", fill = "blue", alpha = 0.3, bins = 90) +
-  geom_histogram(aes(ruleFollowing), color = "darkblue", fill = "blue", alpha = 0.3, bins = 90) +
-  #geom_point(x = sum(data$choice), y = 0, color = "red", shape = 17, size = 5) +
-  xlab("Predicted heads out of 1000 trials") +
-  ylab("Posterior Density") +
-  theme_classic()
+# draws_df_0.2 <- draws_df_0.2 %>% mutate(
+#   ruleFollowing_prior = rbeta(nrow(draws_df_0.2), 1, 1))
+# 
+# ggplot(draws_df_0.2) +
+#   geom_histogram(aes(ruleFollowing_prior), color = "lightblue", fill = "blue", alpha = 0.3, bins = 90) +
+#   geom_histogram(aes(ruleFollowing), color = "darkblue", fill = "blue", alpha = 0.3, bins = 90) +
+#   #geom_point(x = sum(data$choice), y = 0, color = "red", shape = 17, size = 5) +
+#   xlab("Predicted rule-following") +
+#   ylab("Posterior Density") +
+#   theme_classic()+
+#   ggtitle("True rule-following = 0.2")
 ```
 
 
