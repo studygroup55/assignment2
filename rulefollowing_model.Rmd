@@ -197,9 +197,10 @@ list_of_dfs <- list()
 temp <- list()
 recovery_df <- data.frame()
 
-for(ruleFollowing_lvl in seq(0, 1, 0.1)){
+for(ruleFollowing_lvl in seq(0, 1, 0.2)){
   ruleFollowing = ruleFollowing_lvl
   trials = 120
+  random_rate = 0.7
   
   #Define empty vectors
   Self <- rep(NA, trials)
@@ -298,7 +299,7 @@ for(ruleFollowing_lvl in seq(0, 1, 0.1)){
 
 **Plots for different values of rulefollowing**
 ```{r}
-plot_0.2
+plot_0.2  <- plot_0.2 + ggtitle("Rule-following = 0.2")
 
 # add a prior for theta (ugly, but we'll do better soon)
 draws_df_0.2<- draws_df_0.2 %>% mutate(
@@ -306,17 +307,19 @@ draws_df_0.2<- draws_df_0.2 %>% mutate(
 )
 
 # Now let's plot the density for theta (prior and posterior)
-ggplot(draws_df_0.2) +
+p1 <- ggplot(draws_df_0.2) +
   geom_density(aes(ruleFollowing), fill = "blue", alpha = 0.3) +
   geom_density(aes(ruleFollowing_prior), fill = "red", alpha = 0.3) +
   geom_vline(xintercept = 0.2, linetype = "dashed", color = "black", size = 1.5) +
-  xlab("Rate") +
+  xlab("Rule-following") +
   ylab("Posterior Density") +
-  theme_classic()
+  ylim(0,5)+
+  theme_classic()+
+  ggtitle("True rule-following = 0.2")
 
 
 
-plot_0.4
+plot_0.4 <- plot_0.4 + ggtitle("Rule-following = 0.4")
 
 # add a prior for theta (ugly, but we'll do better soon)
 draws_df_0.4<- draws_df_0.4 %>% mutate(
@@ -324,16 +327,18 @@ draws_df_0.4<- draws_df_0.4 %>% mutate(
 )
 
 # Now let's plot the density for theta (prior and posterior)
-ggplot(draws_df_0.4) +
+p2 <- ggplot(draws_df_0.4) +
   geom_density(aes(ruleFollowing), fill = "blue", alpha = 0.3) +
   geom_density(aes(ruleFollowing_prior), fill = "red", alpha = 0.3) +
   geom_vline(xintercept = 0.4, linetype = "dashed", color = "black", size = 1.5) +
-  xlab("Rate") +
+  xlab("Rule-following") +
   ylab("Posterior Density") +
-  theme_classic()
+  ylim(0,5)+
+  theme_classic()+
+  ggtitle("True rule-following = 0.4")
 
 
-plot_0.6
+plot_0.6 <- plot_0.6 + ggtitle("Rule-following = 0.6")
 
 # add a prior for theta (ugly, but we'll do better soon)
 draws_df_0.6<- draws_df_0.6 %>% mutate(
@@ -341,16 +346,18 @@ draws_df_0.6<- draws_df_0.6 %>% mutate(
 )
 
 # Now let's plot the density for theta (prior and posterior)
-ggplot(draws_df_0.6) +
+p3 <- ggplot(draws_df_0.6) +
   geom_density(aes(ruleFollowing), fill = "blue", alpha = 0.3) +
   geom_density(aes(ruleFollowing_prior), fill = "red", alpha = 0.3) +
   geom_vline(xintercept = 0.6, linetype = "dashed", color = "black", size = 1.5) +
-  xlab("Rate") +
+  xlab("Rule-following") +
   ylab("Posterior Density") +
-  theme_classic()
+  ylim(0,5)+
+  theme_classic()+
+  ggtitle("True rule-following = 0.6")
 
 
-plot_0.8
+plot_0.8 <- plot_0.8 + ggtitle("Rule-following = 0.8")
 
 # add a prior for theta (ugly, but we'll do better soon)
 draws_df_0.8<- draws_df_0.8 %>% mutate(
@@ -358,19 +365,65 @@ draws_df_0.8<- draws_df_0.8 %>% mutate(
 )
 
 # Now let's plot the density for theta (prior and posterior)
-ggplot(draws_df_0.8) +
+p4 <- ggplot(draws_df_0.8) +
   geom_density(aes(ruleFollowing), fill = "blue", alpha = 0.3) +
   geom_density(aes(ruleFollowing_prior), fill = "red", alpha = 0.3) +
   geom_vline(xintercept = 0.8, linetype = "dashed", color = "black", size = 1.5) +
-  xlab("Rate") +
+  xlab("Rule-following") +
   ylab("Posterior Density") +
-  theme_classic()
+  ylim(0,5)+
+  theme_classic()+
+  ggtitle("True rule-following = 0.8")
+
+
+
+ggarrange(plot_0.2 + rremove("x.text")+ rremove("xlab"), plot_0.4 + rremove("x.text")+ rremove("xlab")+ rremove("y.text") + rremove("ylab"), plot_0.6, plot_0.8 + rremove("y.text")+ rremove("ylab"),
+          align = "hv",
+          padding = 4,
+          ncol = 2, nrow = 2)
+
+ggarrange(p1 + rremove("x.text")+ rremove("xlab"), p2 + rremove("x.text")+ rremove("xlab")+ rremove("y.text") + rremove("ylab"), p3, p4 + rremove("y.text")+ rremove("ylab"),
+          align = "hv",
+          padding = 4,
+          ncol = 2, nrow = 2)
+
+
 ```
 
 
 **Looking at the recoveries**
 ```{r}
 recovery_df
+```
+
+
+Assessing prior and posterior predictions
+```{r}
+#THIS NEEDS A LOT OF LOVE! DOESNT WORK. RATE IS DIFFERENT PR. TRIAL SINCE IT IS LARGELY DETERMINED BY WHETHER LAST TRIAL WAS A WIN OR LOSS. 
+# draws_df_0.2 <- draws_df_0.2 %>% mutate(
+#   rate_prior = rbeta(nrow(draws_df_0.2), 1, 1))
+# 
+# ggplot(draws_df_0.2) +
+#   geom_histogram(aes(rate_prior), color = "lightblue", fill = "blue", alpha = 0.3, bins = 90) +
+#   geom_histogram(aes(rate_p), color = "darkblue", fill = "blue", alpha = 0.3, bins = 90) +
+#   #geom_point(x = sum(data$choice), y = 0, color = "red", shape = 17, size = 5) +
+#   xlab("Predicted heads out of 1000 trials") +
+#   ylab("Posterior Density") +
+#   theme_classic()
+
+
+#IT IS POSSIBLE TO MAKE FOR RULEFOLLOWING, BUT I CANT FIGURE OUT IF IT MAKES SENCE RIGHT NOW
+
+draws_df_0.2 <- draws_df_0.2 %>% mutate(
+  ruleFollowing_prior = rbeta(nrow(draws_df_0.2), 1, 1))
+
+ggplot(draws_df_0.2) +
+  geom_histogram(aes(ruleFollowing_prior), color = "lightblue", fill = "blue", alpha = 0.3, bins = 90) +
+  geom_histogram(aes(ruleFollowing), color = "darkblue", fill = "blue", alpha = 0.3, bins = 90) +
+  #geom_point(x = sum(data$choice), y = 0, color = "red", shape = 17, size = 5) +
+  xlab("Predicted heads out of 1000 trials") +
+  ylab("Posterior Density") +
+  theme_classic()
 ```
 
 
