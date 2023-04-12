@@ -3,16 +3,6 @@ title: "memory_model.Rmd"
 output: html_document
 date: "2023-03-14"
 ---
-Implementation of a simple memory model, parameter recovery, and testing of trial number + priors. (commented pr line in Stan)
-
-Including multilevel (parameter recovery) and/or empirical data (analyze) in the report.
-
-Empirical datasets:
-- Guide to the data: https://www.dropbox.com/s/m1u5roo4z0f2emr/readme.txt?dl=0
-- Non-human primates dataset: https://www.dropbox.com/s/8fj7k5jk8mn4j63/mp_primates.csv?dl=0
-- Human primates dataset (former CogSci'ers): https://www.dropbox.com/s/9z6hcg9b4yhzgbu/mp_students.csv?dl=0
-https://www.dropbox.com/s/r2ok23vjewyelaz/mp_students_22.csv?dl=0
-- Clinical dataset (schizophrenia and controls): https://www.dropbox.com/s/dxj9f8txg1yax68/mp_schizophrenia.csv?dl=0
 
 **Testing agent simulation** 
 
@@ -35,7 +25,7 @@ RandomAgent_f <- function(rate){
   return(choice)
 }
 
-#Another suggestion for a memory agent
+#Define a memory agent based on the exponential moving average
 EMA_Agent_f <- function(beta, bias, memory, n_trials){
   
   choice <- rbinom(1,1, inv_logit_scaled(bias + beta * memory))
@@ -49,8 +39,7 @@ EMA_Agent_f <- function(beta, bias, memory, n_trials){
 
 **Simulation**
 ```{r}
-#Simulating the memory agent data
-
+#Defining true parameter values and number of trials
 rate <- 0.7
 alpha <- 0.3
 beta <- 1
@@ -62,8 +51,10 @@ Self <- rep(NA, n_trials)
 Other <- rep(NA, n_trials)
 
 #Simulate data
+
 #Other - random agent
 for (t in seq(n_trials)){Other[t] <- RandomAgent_f(rate)}
+
 #Self - memory agent
 memory <- rep(0, n_trials) #create a memory vector with an initial memory value (could be anything)
 
@@ -77,84 +68,190 @@ for (i in 1:n_trials){
 
 **Transforming the data to the appropriate form**
 ```{r}
-
+#Drop first value in memory vector
 memory <- memory[1:120]
 
-#Create df
+#Create dataframe
 df <- tibble(Self, Other, memory, trial = seq(n_trials))
 
-
-#Making Self_choice 0 and 1, cause we need that in the bernoulli in the stan model
+#Re-code self choice to 0 and 1 (needed in the Stan file)
 df <- df %>% 
   mutate(Self = ifelse(Self == -1, 0, Self))
 
-
-
 #Transform data to lists
 data <- list(
-  n_trials = nrow(df),  # n of trials
-  choice = df$Self, # sequence of choices
-  other = df$Other # sequence of the other agents choices
-    )
+  n_trials = nrow(df), 
+  choice = df$Self,
+  other = df$Other)
+
 ```
 
-
-**Compile and fit the model**
+**Test module: Compile and fit the model for fixed parameter values**
 ```{r}
-file <- file.path("memory_agent.stan")
+# file <- file.path("memory_agent.stan")
+#   mod <- cmdstan_model(file, 
+#                        # this specifies we can parallelize the gradient estimations on multiple cores
+#                        cpp_options = list(stan_threads = TRUE), 
+#                        # this is a trick to make it faster
+#                        stanc_options = list("O1")) 
+#   
+#   #extract samples
+#   samples <- mod$sample(
+#     data = data, # the data :-)
+#     seed = 123,  # a seed, so I always get the same results
+#     chains = 2,  # how many chains should I fit (to check whether they give the same results)
+#     parallel_chains = 2, # how many of the chains can be run in parallel?
+#     threads_per_chain = 2, # distribute gradient estimations within chain across multiple cores
+#     iter_warmup = 1000,  # warmup iterations through which hyperparameters (steps and step length) are adjusted
+#     iter_sampling = 2000, # total number of iterations
+#     refresh = 0,  # how often to show that iterations have been run
+#     max_treedepth = 20, # how many steps in the future to check to avoid u-turns
+#     adapt_delta = 0.99, # how high a learning rate to adjust hyperparameters during warmup
+#   )
+#   
+#   #extract summary 
+#   samples$summary()
+# 
+#   
+#   # Extract posterior samples and include sampling of the prior:
+#   draws_df <- as_draws_df(samples$draws())
+# 
+#   
+#   # Checking the model's chains (noise)
+#   ggplot(draws_df, aes(.iteration, alpha, group = .chain, color = .chain)) +
+#       geom_line() +
+#       theme_classic()
+
+```
+
+**Prior sensitivity checks for bias and beta** 
+
+**Apply and compile Stan model with varying prior values**
+```{r}
+pacman::p_load(tidyverse,
+        here,
+        posterior,
+        cmdstanr,
+        brms, 
+        tidybayes,
+        future,
+        purrr,
+        furrr)
+plan(multisession, workers = 4)
+
+#Adding different priors
+prior_mean_bias <- 0
+prior_sd_bias <- seq(0.2, 0.8, 0.2)
+prior_mean_beta <- 0
+prior_sd_beta <- seq(0.2, 0.8, 0.2)
+
+priors <-  tibble(expand.grid(tibble(prior_mean_bias, prior_sd_bias, prior_mean_beta, prior_sd_beta)))
+
+sim_d_and_fit <- function(prior_mean_bias, prior_sd_bias, prior_mean_beta, prior_sd_beta) {
+  
+  #Transform data to lists
+  data <- list(
+    n_trials = nrow(df),  # n of trials
+    choice = df$Self, # sequence of choices
+    other = df$Other, # sequence of the other agents choices
+    prior_mean_bias = prior_mean_bias,
+    prior_sd_bias = prior_sd_bias,
+    prior_mean_beta = prior_mean_beta,
+    prior_sd_beta = prior_sd_beta
+    )
+    
+  #Fetch model
+  file <- file.path("memory_agent_test.stan")
   mod <- cmdstan_model(file, 
                        # this specifies we can parallelize the gradient estimations on multiple cores
                        cpp_options = list(stan_threads = TRUE), 
                        # this is a trick to make it faster
                        stanc_options = list("O1")) 
   
-  #extract samples
   samples <- mod$sample(
-    data = data, # the data :-)
-    seed = 123,  # a seed, so I always get the same results
-    chains = 2,  # how many chains should I fit (to check whether they give the same results)
-    parallel_chains = 2, # how many of the chains can be run in parallel?
-    threads_per_chain = 2, # distribute gradient estimations within chain across multiple cores
-    iter_warmup = 1000,  # warmup iterations through which hyperparameters (steps and step length) are adjusted
-    iter_sampling = 2000, # total number of iterations
-    refresh = 0,  # how often to show that iterations have been run
-    max_treedepth = 20, # how many steps in the future to check to avoid u-turns
-    adapt_delta = 0.99, # how high a learning rate to adjust hyperparameters during warmup
-  )
+    data = data,
+    seed = 1000,
+    chains = 1,
+    parallel_chains = 1,
+    threads_per_chain = 1,
+    iter_warmup = 1000,
+    iter_sampling = 2000,
+    refresh = 0,
+    max_treedepth = 20,
+    adapt_delta = 0.99,
+    )
   
-  #extract summary 
-  samples$summary()
+  draws_df <- as_draws_df(samples$draws()) 
+  
+  temp <- tibble(bias_prior = draws_df$bias_prior, 
+                 beta_prior = draws_df$beta_prior, 
+                 alpha_prior = draws_df$alpha_prior,
+                 
+                 bias_posterior = draws_df$bias_posterior, 
+                 beta_posterior = draws_df$beta_posterior,
+                 alpha_posterior = draws_df$alpha_posterior,
+                 
+                 bias_prior_preds = draws_df$bias_prior_preds,
+                 beta_prior_preds = draws_df$beta_prior_preds,
+                 alpha_prior_preds = draws_df$alpha_prior_preds,
+                 
+                 bias_posterior_preds = draws_df$bias_posterior_preds,
+                 beta_posterior_preds = draws_df$beta_posterior_preds,
+                 alpha_posterior_preds = draws_df$alpha_posterior_preds,
+                 
+                 prior_mean_bias = prior_mean_bias,
+                 prior_sd_bias = prior_sd_bias, 
+                 prior_mean_beta = prior_mean_beta,
+                 prior_sd_beta = prior_sd_beta)
+    
+    return(temp)
+  
+}
 
-  
-  # Extract posterior samples and include sampling of the prior:
-  draws_df <- as_draws_df(samples$draws())
+#Compile model for different priors
+recovery_df <- future_pmap_dfr(priors, sim_d_and_fit, .options = furrr_options(seed = TRUE))
+```
 
-  
-  # Checking the model's chains (noise)
-  ggplot(draws_df, aes(.iteration, alpha, group = .chain, color = .chain)) +
-      geom_line() +
-      theme_classic()
+```{r}
+
+#Plot beta posterior for varying priors
+ggplot(recovery_df, aes(prior_sd_beta, beta_posterior)) +
+  geom_point(alpha = 0.008) +
+  geom_hline(yintercept = 0.5, color = "red") +
+  geom_smooth(method = lm) +
+  facet_wrap(.~prior_sd_bias) +
+  theme_classic()
+
+#Plot bias posterior for varying priors
+ggplot(recovery_df, aes(prior_sd_bias, bias_posterior)) +
+  geom_point(alpha = 0.1) +
+  geom_hline(yintercept = 0.5, color = "red") +
+  geom_smooth() +
+  facet_wrap(.~prior_sd_beta) +
+  theme_classic()
 
 ```
 
 
-*Function for simulating with different values for alpha*
+**Function for simulating with different values for alpha**
 
 ```{r}
+#Create empty lists and dataframe to append to in the loop
 list_of_dfs <- list()
 temp <- list()
 recovery_df <- data.frame()
 #n_trials = 500
 
+#Looping through data simulation, model compilation, and chain checks for varying parameter values of alpha
 
-for(alpha_lvl in seq(0.2, 0.8, 0.2)){
+for(alpha_lvl in seq(0.2, 0.8, 0.2)){ #for alpha values of 0.2, 0.4, 0.6 and 0.8
   set.seed(1982)
   
   alpha = alpha_lvl
   n_trials = 120
   rate <- 0.7 #Probability scale
   beta <- 1 #logodds
-  bias <- 0.5 #NB this is on a logodds scale, so it has a small bias towards right 
+  bias <- 0.5 #logodds, small bias towards right 
   
   #Define empty vectors
   Self <- rep(NA, n_trials)
@@ -236,6 +333,11 @@ for(alpha_lvl in seq(0.2, 0.8, 0.2)){
 }
 ```
 
+**Looking at the recoveries**
+```{r}
+recovery_df
+```
+
 
 **Plots for different values of alpha**
 ```{r}
@@ -243,14 +345,15 @@ for(alpha_lvl in seq(0.2, 0.8, 0.2)){
 library(ggpubr)
 
 
+#Create plot for alpha 0.2
 plot_0.2 <- plot_0.2 + ggtitle("Alpha = 0.2")
 
-# add a prior for theta (ugly, but we'll do better soon)
+#Add a prior for alpha at level 0.2
 draws_df_0.2<- draws_df_0.2 %>% mutate(
   alpha_prior = rbeta(nrow(draws_df_0.2), 1, 1)
 )
 
-# Now let's plot the density for theta (prior and posterior)
+#Plot the density for alpha (prior and posterior)
 p1 <- ggplot(draws_df_0.2) +
   geom_density(aes(alpha), fill = "blue", alpha = 0.3) +
   geom_density(aes(alpha_prior), fill = "red", alpha = 0.3) +
@@ -262,15 +365,15 @@ p1 <- ggplot(draws_df_0.2) +
   ggtitle("True alpha = 0.2")
 
 
-
+#Create plot for alpha 0.4
 plot_0.4 <- plot_0.4 + ggtitle("Alpha = 0.4")
 
-# add a prior for theta (ugly, but we'll do better soon)
+#Add a prior for alpha at level 0.4
 draws_df_0.4<- draws_df_0.4 %>% mutate(
   alpha_prior = rbeta(nrow(draws_df_0.4), 1, 1)
 )
 
-# Now let's plot the density for theta (prior and posterior)
+#Plot the density for alpha (prior and posterior)
 p2 <- ggplot(draws_df_0.4) +
   geom_density(aes(alpha), fill = "blue", alpha = 0.3) +
   geom_density(aes(alpha_prior), fill = "red", alpha = 0.3) +
@@ -281,15 +384,15 @@ p2 <- ggplot(draws_df_0.4) +
   theme_classic()+
   ggtitle("True alpha = 0.4")
 
-
+#Create plot for alpha 0.6
 plot_0.6 <- plot_0.6 + ggtitle("Alpha = 0.6")
 
-# add a prior for theta (ugly, but we'll do better soon)
+#Add a prior for alpha at level 0.6
 draws_df_0.6<- draws_df_0.6 %>% mutate(
   alpha_prior = rbeta(nrow(draws_df_0.6), 1, 1)
 )
 
-# Now let's plot the density for theta (prior and posterior)
+#Plot the density for alpha (prior and posterior)
 p3 <- ggplot(draws_df_0.6) +
   geom_density(aes(alpha), fill = "blue", alpha = 0.3) +
   geom_density(aes(alpha_prior), fill = "red", alpha = 0.3) +
@@ -301,14 +404,15 @@ p3 <- ggplot(draws_df_0.6) +
   ggtitle("True alpha = 0.6")
 
 
+#Create plot for alpha 0.8
 plot_0.8 <- plot_0.8 + ggtitle("Alpha = 0.8")
 
-# add a prior for theta (ugly, but we'll do better soon)
+#Add a prior for alpha at level 0.8
 draws_df_0.8 <- draws_df_0.8 %>% mutate(
   alpha_prior = rbeta(nrow(draws_df_0.8), 1, 1)
 )
 
-# Now let's plot the density for theta (prior and posterior)
+#Plot the density for alpha (prior and posterior)
 p4 <- ggplot(draws_df_0.8) +
   geom_density(aes(alpha), fill = "blue", alpha = 0.3) +
   geom_density(aes(alpha_prior), fill = "red", alpha = 0.3) +
@@ -319,75 +423,22 @@ p4 <- ggplot(draws_df_0.8) +
   theme_classic()+
   ggtitle("True alpha = 0.8")
   
-
-
+#Plot chain convergence for varying alpha levels
 ggarrange(plot_0.2 + rremove("x.text")+ rremove("xlab"), plot_0.4 + rremove("x.text")+ rremove("xlab")+ rremove("y.text") + rremove("ylab"), plot_0.6, plot_0.8 + rremove("y.text")+ rremove("ylab"),
           align = "hv",
           padding = 4,
           ncol = 2, nrow = 2)
 
+#Plot densities for prior and posterior for varying alpha levels
 ggarrange(p1 + rremove("x.text")+ rremove("xlab"), p2 + rremove("x.text")+ rremove("xlab")+ rremove("y.text") + rremove("ylab"), p3, p4 + rremove("y.text")+ rremove("ylab"),
           align = "hv",
           padding = 4,
           ncol = 2, nrow = 2)
 
-p4
-?rremove
-
 ```
 
 
-```{r}
-plot_0.2
-
-#ALPHA
-# add a prior for theta (ugly, but we'll do better soon)
-draws_df<- draws_df %>% mutate(
-  alpha_prior = rbeta(nrow(draws_df), 1, 1)
-)
-
-# Now let's plot the density for theta (prior and posterior)
-ggplot(draws_df_0.2) +
-  geom_density(aes(alpha), fill = "blue", alpha = 0.3) +
-  geom_density(aes(alpha_prior), fill = "red", alpha = 0.3) +
-  geom_vline(xintercept = 0.2, linetype = "dashed", color = "black", size = 1.5) +
-  xlab("Alpha") +
-  ylab("Posterior Density") +
-  theme_classic()
-
-
-
-#BIAS
-# Now let's plot the density for theta (prior and posterior)
-ggplot(draws_df_0.2) +
-  geom_density(aes(bias), fill = "blue", alpha = 0.3) +
-  geom_density(aes(bias_prior), fill = "red", alpha = 0.3) +
-  geom_vline(xintercept = 0.5, linetype = "dashed", color = "black", size = 1.5) +
-  xlab("Bias") +
-  ylab("Posterior Density") +
-  theme_classic()
-
-
-#BETA
-# Now let's plot the density for theta (prior and posterior)
-ggplot(draws_df_0.2) +
-  geom_density(aes(beta), fill = "blue", alpha = 0.3) +
-  geom_density(aes(beta_prior), fill = "red", alpha = 0.3) +
-  geom_vline(xintercept = 0.9, linetype = "dashed", color = "black", size = 1.5) +
-  xlab("Beta") +
-  ylab("Posterior Density") +
-  theme_classic()
-```
-
-
-
-**Looking at the recoveries**
-```{r}
-recovery_df
-```
-
-
-**Function for simulating and saving data**
+**Function for simulating with different values for beta**
 ```{r}
 list_of_dfs <- list()
 temp <- list()
@@ -567,8 +618,7 @@ ggarrange(p5 + rremove("x.text")+ rremove("xlab"), p6 + rremove("x.text")+ rremo
 ```
 
 
-
-**Same function as above, but with an outer loop for bias**
+**Function for simulating with different values for beta, with an outer loop for bias**
 ```{r}
 list_of_dfs <- list()
 temp <- list()
