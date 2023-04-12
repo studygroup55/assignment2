@@ -180,11 +180,6 @@ ggplot(draws_df, aes(.iteration,  ruleFollowing, group = .chain, color = .chain)
   geom_line() +
   theme_classic()
 
-# Checking the model's chains (rate)
-ggplot(draws_df, aes(.iteration, rate, group = .chain, color = .chain)) +
-  geom_line() +
-  theme_classic()
-
 ```
 
 
@@ -275,6 +270,12 @@ for(ruleFollowing_lvl in seq(0, 1, 0.2)){
   
   # Extract posterior samples and include sampling of the prior:
   draws_df <- as_draws_df(samples$draws())
+  
+    
+  temp2 <- tibble(ruleFollowingEst = (draws_df$ruleFollowing),
+                  ruleFollowingTrue = ruleFollowing_lvl)
+    
+  if (exists("recovery_df_2")) {recovery_df_2 <- rbind(recovery_df_2, temp2)} else {recovery_df_2 <- temp2}
 
   
   # Checking the model's chains (noise)
@@ -313,7 +314,7 @@ p1 <- ggplot(draws_df_0.2) +
   geom_vline(xintercept = 0.2, linetype = "dashed", color = "black", size = 1.5) +
   xlab("Rule-following") +
   ylab("Posterior Density") +
-  ylim(0,5)+
+  ylim(0,6)+
   theme_classic()+
   ggtitle("True rule-following = 0.2")
 
@@ -333,7 +334,7 @@ p2 <- ggplot(draws_df_0.4) +
   geom_vline(xintercept = 0.4, linetype = "dashed", color = "black", size = 1.5) +
   xlab("Rule-following") +
   ylab("Posterior Density") +
-  ylim(0,5)+
+  ylim(0,6)+
   theme_classic()+
   ggtitle("True rule-following = 0.4")
 
@@ -352,7 +353,7 @@ p3 <- ggplot(draws_df_0.6) +
   geom_vline(xintercept = 0.6, linetype = "dashed", color = "black", size = 1.5) +
   xlab("Rule-following") +
   ylab("Posterior Density") +
-  ylim(0,5)+
+  ylim(0,6)+
   theme_classic()+
   ggtitle("True rule-following = 0.6")
 
@@ -371,7 +372,7 @@ p4 <- ggplot(draws_df_0.8) +
   geom_vline(xintercept = 0.8, linetype = "dashed", color = "black", size = 1.5) +
   xlab("Rule-following") +
   ylab("Posterior Density") +
-  ylim(0,5)+
+  ylim(0,6)+
   theme_classic()+
   ggtitle("True rule-following = 0.8")
 
@@ -431,6 +432,35 @@ Assessing prior and posterior predictions
 
 
 
+```{r}
+#EVAS PLOT
+post_preds_0.2 <- recovery_df_2[recovery_df_2$ruleFollowingTrue == 0.2, "ruleFollowingEst"]
+colnames(post_preds_0.2)[1] = "pred_0.2"
+post_preds_0.4 <- recovery_df_2[recovery_df_2$ruleFollowingTrue == 0.4, "ruleFollowingEst"]
+colnames(post_preds_0.4)[1] = "pred_0.4"
+post_preds_0.6 <- recovery_df_2[recovery_df_2$ruleFollowingTrue == "0.6", "ruleFollowingEst"]
+colnames(post_preds_0.6)[1] = "pred_0.6"
+post_preds_0.8 <- recovery_df_2[recovery_df_2$ruleFollowingTrue == 0.8, "ruleFollowingEst"]
+colnames(post_preds_0.8)[1] = "pred_0.8"
+
+df_post_preds <- cbind(post_preds_0.2, post_preds_0.4, post_preds_0.6, post_preds_0.8)
+
+
+ggplot(df_post_preds) +
+  geom_histogram(aes(pred_0.2), color = "yellow", fill = "lightyellow", alpha = 0.3, bins = 90) +
+  geom_histogram(aes(pred_0.4), color = "green", fill = "lightgreen", alpha = 0.3, bins = 90) +
+  geom_histogram(aes(pred_0.6), color = "blue", fill = "lightblue", alpha = 0.3, bins = 90) +
+  geom_histogram(aes(pred_0.8), color = "pink", fill = "lightpink", alpha = 0.3, bins = 90) +
+  #geom_point(x = sum(data$h), y = 0, color = "red", shape = 17, size = 5) +
+  xlab("Estimated rule-following") +
+  ylab("Posterior Density") +
+  ggtitle("Posterior predictions for various rule-following values") + 
+  annotate("text", x=0.1, y=300, label= "0.2") + 
+  annotate("text", x=0.4, y=120, label= "0.4") +
+  annotate("text", x=0.7, y=120, label= "0.6") +
+  annotate("text", x=0.9, y=210, label= "0.8") +
+  theme_classic()
+```
 
 
 
