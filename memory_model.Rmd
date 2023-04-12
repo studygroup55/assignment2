@@ -51,9 +51,9 @@ EMA_Agent_f <- function(beta, bias, memory, n_trials){
 ```{r}
 #Simulating the memory agent data
 
-rate <- 0.5
-alpha <- 0.2
-beta <- 0.5
+rate <- 0.7
+alpha <- 0.3
+beta <- 1
 bias <- 0.5
 n_trials <- 120
 
@@ -147,7 +147,7 @@ recovery_df <- data.frame()
 #n_trials = 500
 
 
-for(alpha_lvl in seq(0, 1, 0.2)){
+for(alpha_lvl in seq(0.2, 0.8, 0.2)){
   set.seed(1982)
   
   alpha = alpha_lvl
@@ -321,7 +321,7 @@ p4 <- ggplot(draws_df_0.8) +
   
 
 
-ggarrange(plot_0.2.1 + rremove("x.text")+ rremove("xlab"), plot_0.4 + rremove("x.text")+ rremove("xlab")+ rremove("y.text") + rremove("ylab"), plot_0.6, plot_0.8 + rremove("y.text")+ rremove("ylab"),
+ggarrange(plot_0.2 + rremove("x.text")+ rremove("xlab"), plot_0.4 + rremove("x.text")+ rremove("xlab")+ rremove("y.text") + rremove("ylab"), plot_0.6, plot_0.8 + rremove("y.text")+ rremove("ylab"),
           align = "hv",
           padding = 4,
           ncol = 2, nrow = 2)
@@ -387,14 +387,13 @@ recovery_df
 ```
 
 
-
+**Function for simulating and saving data**
 ```{r}
 list_of_dfs <- list()
 temp <- list()
 recovery_df <- data.frame()
 #n_trials = 500
 
-#for (bias_lvl in seq(0, 1.5, 0.5)){
   for(beta_lvl in seq(-1.5, 1.5, 1)){
     set.seed(1982)
     
@@ -467,6 +466,12 @@ recovery_df <- data.frame()
     
     # Extract posterior samples and include sampling of the prior:
     draws_df <- as_draws_df(samples$draws())
+    
+    temp2 <- tibble(betaEst = (draws_df$beta),
+                    betaTrue = beta_lvl,
+                    biasTrue = bias_lvl)
+    
+    if (exists("recovery_df_2")) {recovery_df_2 <- rbind(recovery_df_2, temp2)} else {recovery_df_2 <- temp2}
   
     
     # Checking the model's chains (noise)
@@ -483,24 +488,11 @@ recovery_df <- data.frame()
     
     recovery_df <- rbind(recovery_df, samples$summary("alpha"), samples$summary("beta"), samples$summary("bias"))
   }  
-#}
 ```
 
 
-
+**Nice plots**
 ```{r}
-#plot_0
-
-#BETA
-# Now let's plot the density for theta (prior and posterior)
-#ggplot(draws_df_0) +
-  #geom_density(aes(inv_logit_scaled(beta)), fill = "blue", alpha = 0.3) +
-  #geom_density(aes(beta_prior), fill = "red", alpha = 0.3) +
-  #geom_vline(xintercept = 0, linetype = "dashed", color = "black", size = 1.5) +
-  #xlab("Beta") +
-  #ylab("Posterior Density") +
-  #theme_classic()
-
 
 plot_0.182425523806356 <- plot_0.182425523806356 + ggtitle("Beta ~ 0.2")
 #BETA
@@ -558,6 +550,7 @@ p8 <- ggplot(draws_df_0.817574476193644) +
 
 
 
+library(ggpubr)
 
 ggarrange(plot_0.182425523806356 + rremove("x.text")+ rremove("xlab"), plot_0.377540668798145 + rremove("x.text")+ rremove("xlab")+ rremove("y.text") + rremove("ylab"), plot_0.622459331201855, plot_0.817574476193644 + rremove("y.text")+ rremove("ylab"),
           align = "hv",
@@ -571,5 +564,112 @@ ggarrange(p5 + rremove("x.text")+ rremove("xlab"), p6 + rremove("x.text")+ rremo
 
 
 
+```
+
+
+
+**Same function as above, but with an outer loop for bias**
+```{r}
+list_of_dfs <- list()
+temp <- list()
+recovery_df <- data.frame()
+#n_trials = 500
+
+for (bias_lvl in seq(0, 1.5, 0.5)){
+  for(beta_lvl in seq(-1.5, 1.5, 1)){
+    set.seed(1982)
+    
+    beta = beta_lvl
+    n_trials = 120
+    rate <- 0.7
+    alpha <- 0.3 #Cognitively realistic according to the literature 
+    bias <- bias_lvl 
+    
+    #Define empty vectors
+    Self <- rep(NA, n_trials)
+    Other <- rep(NA, n_trials)
+    
+    #Run simulation
+    for (t in seq(n_trials)){Other[t] <- RandomAgent_f(rate)}
+    
+    #Self - memory agent
+    memory <- rep(0, n_trials) #create a memory vector with an initial memory value (could be anything)
+    
+    for (i in 1:n_trials){
+      Self[i] <- EMA_Agent_f(beta, bias, memory[i], n_trials)
+      memory[i + 1] <- alpha * memory[i] + (1 - alpha) * Other[i]
+    }
+    
+    
+    memory <- memory[1:n_trials]
+    
+    #Create df
+    df <- tibble(Self, Other, memory, trial = seq(n_trials))
+    
+    
+    #Making Self_choice 0 and 1, cause we need that in the bernoulli in the stan model
+    df <- df %>% 
+      mutate(Self = ifelse(Self == -1, 0, Self))
+    
+    
+    
+    #Transform data to lists
+    data <- list(
+      n_trials = nrow(df),  # n of trials
+      choice = df$Self, # sequence of choices
+      other = df$Other # sequence of the other agents choices
+      )
+    
+    
+    
+    file <- file.path("memory_agent.stan")
+    mod <- cmdstan_model(file, 
+                         # this specifies we can parallelize the gradient estimations on multiple cores
+                         cpp_options = list(stan_threads = TRUE), 
+                         # this is a trick to make it faster
+                         stanc_options = list("O1")) 
+    
+    #extract samples
+    samples <- mod$sample(
+      data = data, # the data :-)
+      seed = 123,  # a seed, so I always get the same results
+      chains = 2,  # how many chains should I fit (to check whether they give the same results)
+      parallel_chains = 2, # how many of the chains can be run in parallel?
+      threads_per_chain = 2, # distribute gradient estimations within chain across multiple cores
+      iter_warmup = 1000,  # warmup iterations through which hyperparameters (steps and step length) are adjusted
+      iter_sampling = 2000, # total number of iterations
+      refresh = 0,  # how often to show that iterations have been run
+      max_treedepth = 20, # how many steps in the future to check to avoid u-turns
+      adapt_delta = 0.99, # how high a learning rate to adjust hyperparameters during warmup
+    )
+    
+    #extract summary 
+    samples$summary()
+    
+    # Extract posterior samples and include sampling of the prior:
+    draws_df <- as_draws_df(samples$draws())
+    
+    temp2 <- tibble(betaEst = (draws_df$beta),
+                    betaTrue = beta_lvl,
+                    biasTrue = bias_lvl)
+    
+    if (exists("recovery_df_2")) {recovery_df_2 <- rbind(recovery_df_2, temp2)} else {recovery_df_2 <- temp2}
+  
+    
+    # Checking the model's chains (noise)
+    temp = ggplot(draws_df, aes(.iteration, beta, group = .chain, color = .chain)) +
+        geom_line() +
+        theme_classic()
+    
+    # assign function within loop
+    assign(paste0("plot_", inv_logit_scaled(beta_lvl)), temp)
+  
+    assign(paste0("draws_df_", inv_logit_scaled(beta_lvl)), draws_df)
+    
+    
+    
+    recovery_df <- rbind(recovery_df, samples$summary("alpha"), samples$summary("beta"), samples$summary("bias"))
+  }  
+}
 ```
 
