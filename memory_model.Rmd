@@ -723,3 +723,247 @@ for (bias_lvl in seq(0, 1.5, 0.5)){
 }
 ```
 
+
+### Actual recovery Plots
+
+**Function for simulating with different values for beta and bias**
+
+```{r}
+temp2 <- list()
+recovery_df <- data.frame()
+recovery_df_2 <- data.frame()
+
+for (bias_lvl in seq(0, 1.5, 0.5)){
+  for(beta_lvl in seq(-1.5, 1.5, 0.5)){
+    set.seed(1982)
+
+    alpha = 0.5
+    n_trials = 120
+    rate <- 0.7
+    beta <- beta_lvl
+    bias <- bias_lvl #NB this is on a logodds scale, so it has a small bias towards right
+
+    #Define empty vectors
+    Self <- rep(NA, n_trials)
+    Other <- rep(NA, n_trials)
+
+    #Run simulation
+    for (t in seq(n_trials)){Other[t] <- RandomAgent_f(rate)}
+
+    #Self - memory agent
+    memory <- rep(0, n_trials) #create a memory vector with an initial memory value (could be anything)
+
+    for (i in 1:n_trials){
+      Self[i] <- EMA_Agent_f(beta, bias, memory[i])
+      memory[i + 1] <- alpha * memory[i] + (1 - alpha) * Other[i]
+    }
+
+
+    memory <- memory[1:n_trials]
+
+    #Create df
+    df <- tibble(Self, Other, memory, trial = seq(n_trials))
+
+
+    #Making Self_choice 0 and 1, cause we need that in the bernoulli in the stan model
+    df <- df %>%
+      mutate(Self = ifelse(Self == -1, 0, Self))
+
+
+
+    #Transform data to lists
+    data <- list(
+      n_trials = nrow(df),  # n of trials
+      choice = df$Self, # sequence of choices
+      other = df$Other # sequence of the other agents choices
+        )
+
+    file <- file.path("memory_agent.stan")
+    mod <- cmdstan_model(file,
+                         # this specifies we can parallelize the gradient estimations on multiple cores
+                         cpp_options = list(stan_threads = TRUE),
+                         # this is a trick to make it faster
+                         stanc_options = list("O1"))
+
+    #extract samples
+    samples <- mod$sample(
+      data = data, # the data :-)
+      seed = 123,  # a seed, so I always get the same results
+      chains = 2,  # how many chains should I fit (to check whether they give the same results)
+      parallel_chains = 2, # how many of the chains can be run in parallel?
+      threads_per_chain = 2, # distribute gradient estimations within chain across multiple cores
+      iter_warmup = 1000,  # warmup iterations through which hyperparameters (steps and step length) are adjusted
+      iter_sampling = 2000, # total number of iterations
+      refresh = 0,  # how often to show that iterations have been run
+      max_treedepth = 20, # how many steps in the future to check to avoid u-turns
+      adapt_delta = 0.99, # how high a learning rate to adjust hyperparameters during warmup
+    )
+
+    #extract summary
+    samples$summary()
+
+    # Extract posterior samples and include sampling of the prior:
+    draws_df <- as_draws_df(samples$draws())
+
+    temp2 <- tibble(betaEst = (draws_df$beta),
+                    betaTrue = beta_lvl,
+                    biasTrue = bias_lvl)
+
+    if (exists("recovery_df_2")) {recovery_df_2 <- rbind(recovery_df_2, temp2)} else {recovery_df_2 <- temp2}
+
+    # Checking the model's chains (noise)
+    temp = ggplot(draws_df, aes(.iteration, beta, group = .chain, color = .chain)) +
+        geom_line() +
+        theme_classic()
+
+    # assign function within loop
+    assign(paste0("plot_", beta_lvl), temp)
+    assign(paste0("draws_df_", beta_lvl), draws_df)
+
+    recovery_df <- rbind(recovery_df, samples$summary("alpha"), samples$summary("beta"), samples$summary("bias"))
+  }
+
+
+}
+
+
+
+unique(temp2$biasTrue)
+```
+
+
+# Recovery plot - Recovered beta values for different biases
+```{r}
+
+ggplot(recovery_df_2, aes(betaTrue, betaEst)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth(method = 'lm') +
+  facet_wrap(.~ biasTrue) +
+  theme_classic() + ggtitle("Parameter recovery for various bias and beta levels - 120 trials")
+
+
+
+```
+
+
+
+
+
+
+
+**Function for simulating with different values for alpha and bias**
+
+```{r}
+temp2 <- list()
+recovery_df <- data.frame()
+recovery_df_2 <- data.frame()
+
+for (bias_lvl in seq(0, 1.5, 0.5)){
+  for(alpha_lvl in seq(0.2, 0.8, 0.2)){
+    set.seed(1982)
+    
+    alpha = alpha_lvl
+    n_trials = 120
+    rate <- 0.7
+    beta <- 0.9 
+    bias <- bias_lvl #NB this is on a logodds scale, so it has a small bias towards right 
+    
+    #Define empty vectors
+    Self <- rep(NA, n_trials)
+    Other <- rep(NA, n_trials)
+    
+    #Run simulation
+    for (t in seq(n_trials)){Other[t] <- RandomAgent_f(rate)}
+    
+    #Self - memory agent
+    memory <- rep(0, n_trials) #create a memory vector with an initial memory value (could be anything)
+    
+    for (i in 1:n_trials){
+      Self[i] <- EMA_Agent_f(beta, bias, memory[i])
+      memory[i + 1] <- alpha * memory[i] + (1 - alpha) * Other[i]
+    }
+    
+    
+    memory <- memory[1:n_trials]
+    
+    #Create df
+    df <- tibble(Self, Other, memory, trial = seq(n_trials))
+    
+    
+    #Making Self_choice 0 and 1, cause we need that in the bernoulli in the stan model
+    df <- df %>% 
+      mutate(Self = ifelse(Self == -1, 0, Self))
+    
+    
+    
+    #Transform data to lists
+    data <- list(
+      n_trials = nrow(df),  # n of trials
+      choice = df$Self, # sequence of choices
+      other = df$Other # sequence of the other agents choices
+        )
+    
+    file <- file.path("memory_agent.stan")
+    mod <- cmdstan_model(file, 
+                         # this specifies we can parallelize the gradient estimations on multiple cores
+                         cpp_options = list(stan_threads = TRUE), 
+                         # this is a trick to make it faster
+                         stanc_options = list("O1")) 
+    
+    #extract samples
+    samples <- mod$sample(
+      data = data, # the data :-)
+      seed = 123,  # a seed, so I always get the same results
+      chains = 2,  # how many chains should I fit (to check whether they give the same results)
+      parallel_chains = 2, # how many of the chains can be run in parallel?
+      threads_per_chain = 2, # distribute gradient estimations within chain across multiple cores
+      iter_warmup = 1000,  # warmup iterations through which hyperparameters (steps and step length) are adjusted
+      iter_sampling = 2000, # total number of iterations
+      refresh = 0,  # how often to show that iterations have been run
+      max_treedepth = 20, # how many steps in the future to check to avoid u-turns
+      adapt_delta = 0.99, # how high a learning rate to adjust hyperparameters during warmup
+    )
+    
+    #extract summary 
+    samples$summary()
+    
+    # Extract posterior samples and include sampling of the prior:
+    draws_df <- as_draws_df(samples$draws())
+    
+    temp2 <- tibble(alphaEst = (draws_df$alpha),
+                    alphaTrue = alpha_lvl,
+                    biasTrue = bias_lvl)
+    
+    if (exists("recovery_df_2")) {recovery_df_2 <- rbind(recovery_df_2, temp2)} else {recovery_df_2 <- temp2}
+    
+    # Checking the model's chains (noise)
+    temp = ggplot(draws_df, aes(.iteration, beta, group = .chain, color = .chain)) +
+        geom_line() +
+        theme_classic()
+    
+    # assign function within loop
+    assign(paste0("plot_", alpha_lvl), temp)
+    assign(paste0("draws_df_", alpha_lvl), draws_df)
+    
+    recovery_df <- rbind(recovery_df, samples$summary("alpha"), samples$summary("beta"), samples$summary("bias"))
+  }
+
+  
+}
+
+
+
+unique(temp2$biasTrue)
+```
+
+
+# Recovery plot - Recovered alpha values for different biases
+```{r}
+
+ggplot(recovery_df_2, aes(alphaTrue, alphaEst)) +
+  geom_point(alpha = 0.01) +
+  geom_smooth(method = 'lm') +
+  facet_wrap(.~ biasTrue) +
+  theme_classic() + ggtitle("Parameter recovery for various bias and alpha levels - 120 trials")
+```
+
