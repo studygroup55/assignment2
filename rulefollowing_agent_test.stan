@@ -6,8 +6,8 @@ data {
   int<lower=1> n_trials; // Number of trials, integer
   array[n_trials] int choice; // Current choice, 0 (left) and 1 (right), integer
   vector<lower=-1, upper=1>[n_trials] strategy_choice; // Whether to choose left (-1) or right (1) depending on the previous outcome and the WSLS strategy
-  real prior_mean_rulefollowing;
-  real<lower=0> prior_sd_rulefollowing;
+  real prior_mean_rulefollowing; //real value for prior mean of rulefollowing
+  real<lower=0> prior_sd_rulefollowing; //real value for prior standard deviation of rulefollowing
 }
   
 // Defining the parameter to be estimated
@@ -30,13 +30,13 @@ model {
 // Transforms log odds into probabilities 
 generated quantities {
   vector[n_trials] rate_p; // Defining a new vector of the rate transformed into probability
-  real rulefollowing_prior;
-  real rulefollowing_posterior;
-  int<lower=0, upper=n_trials> rulefollowing_prior_preds;
-  int<lower=0, upper=n_trials> rulefollowing_posterior_preds;
+  real rulefollowing_prior; //creating real value for rulefollowing prior
+  real rulefollowing_posterior; //creating real value for rulefollowing posterior
+  int<lower=0, upper=n_trials> rulefollowing_prior_preds; //Creating int values for prior predictions
+  int<lower=0, upper=n_trials> rulefollowing_posterior_preds; //Creating int values for posterior predictions
   
   // Simulating prior distributions in probability space
-  rulefollowing_prior = inv_logit(normal_rng(prior_mean_rulefollowing, prior_sd_rulefollowing)); // inv_logit?
+  rulefollowing_prior = inv_logit(normal_rng(prior_mean_rulefollowing, prior_sd_rulefollowing)); 
   
   // Converting our estimates from log-odds to probability
   rulefollowing_posterior = inv_logit(ruleFollowing);
